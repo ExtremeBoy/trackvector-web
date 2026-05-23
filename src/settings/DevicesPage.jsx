@@ -1,4 +1,4 @@
-import { useCallback, useRef, useReducer, useState } from 'react';
+import { useCallback, useEffect, useRef, useReducer, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -16,6 +16,12 @@ import {
   DialogContent,
   DialogActions,
   Chip,
+  Checkbox,
+  Select,
+  MenuItem,
+  InputLabel,
+  FormControl,
+  Box,
 } from '@mui/material';
 import LinkIcon from '@mui/icons-material/Link';
 import { useTheme } from '@mui/material/styles';
@@ -67,6 +73,12 @@ const DevicesPage = () => {
     groupsToCreate: 0,
   });
   const [importing, setImporting] = useState(false);
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteProcessing, setDeleteProcessing] = useState(false);
+  const [bulkGroupDialogOpen, setBulkGroupDialogOpen] = useState(false);
+  const [bulkGroupId, setBulkGroupId] = useState(0);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   const loadItems = useCallback(
     async (offset, signal) => {
@@ -97,6 +109,11 @@ const DevicesPage = () => {
     },
     [reloadKey, loadItems],
   );
+  useEffect(() => {
+    setSelectedDeviceIds((previous) =>
+      previous.filter((id) => items.some((item) => item.id === id)),
+    );
+  }, [items]);
 
   const handleExport = async () => {
     const data = items.map((item) => ({
@@ -254,6 +271,64 @@ const DevicesPage = () => {
     handler: (deviceId) => navigate(`/settings/device/${deviceId}/connections`),
   };
 
+  const allVisibleSelected =
+    items.length > 0 && items.every((item) => selectedDeviceIds.includes(item.id));
+  const partiallySelected = selectedDeviceIds.length > 0 && !allVisibleSelected;
+  const selectedCount = selectedDeviceIds.length;
+
+  const handleToggleSelectAllVisible = (event) => {
+    if (event.target.checked) {
+      setSelectedDeviceIds(items.map((item) => item.id));
+    } else {
+      setSelectedDeviceIds([]);
+    }
+  };
+
+  const handleToggleSelectOne = (deviceId) => {
+    setSelectedDeviceIds((previous) =>
+      previous.includes(deviceId)
+        ? previous.filter((id) => id !== deviceId)
+        : [...previous, deviceId],
+    );
+  };
+
+  const handleBulkDelete = async () => {
+    setDeleteProcessing(true);
+    const results = await Promise.allSettled(
+      selectedDeviceIds.map((deviceId) =>
+        fetchOrThrow(`/api/devices/${deviceId}`, { method: 'DELETE' }),
+      ),
+    );
+    const deleted = results.filter((result) => result.status === 'fulfilled').length;
+    const failed = results.length - deleted;
+    setDeleteProcessing(false);
+    setDeleteDialogOpen(false);
+    setSelectedDeviceIds([]);
+    reload();
+    alert(`Bulk delete completed. Deleted: ${deleted}. Failed: ${failed}`);
+  };
+
+  const handleBulkChangeGroup = async () => {
+    setBulkUpdating(true);
+    const selectedDevices = items.filter((item) => selectedDeviceIds.includes(item.id));
+    const results = await Promise.allSettled(
+      selectedDevices.map((device) =>
+        fetchOrThrow(`/api/devices/${device.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...device, groupId: bulkGroupId }),
+        }),
+      ),
+    );
+    const updated = results.filter((result) => result.status === 'fulfilled').length;
+    const failed = results.length - updated;
+    setBulkUpdating(false);
+    setBulkGroupDialogOpen(false);
+    setSelectedDeviceIds([]);
+    reload();
+    alert(`Bulk group update completed. Updated: ${updated}. Failed: ${failed}`);
+  };
+
   return (
     <PageLayout menu={<SettingsMenu />} breadcrumbs={['settingsTitle', 'deviceTitle']}>
       <SearchHeader keyword={searchKeyword} setKeyword={setSearchKeyword} />
@@ -261,6 +336,13 @@ const DevicesPage = () => {
         <TableHead>
           <TableRow>
             <TableCell>{t('sharedName')}</TableCell>
+            <TableCell padding="checkbox">
+              <Checkbox
+                checked={allVisibleSelected}
+                indeterminate={partiallySelected}
+                onChange={handleToggleSelectAllVisible}
+              />
+            </TableCell>
             <TableCell>{t('deviceIdentifier')}</TableCell>
             <TableCell>{t('groupParent')}</TableCell>
             <TableCell>{t('sharedPhone')}</TableCell>
@@ -276,6 +358,12 @@ const DevicesPage = () => {
           {items.map((item) => (
             <TableRow key={item.id}>
               <TableCell>{item.name}</TableCell>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  checked={selectedDeviceIds.includes(item.id)}
+                  onChange={() => handleToggleSelectOne(item.id)}
+                />
+              </TableCell>
               <TableCell>{item.uniqueId}</TableCell>
               <TableCell>{item.groupId ? groups[item.groupId]?.name : null}</TableCell>
               <TableCell>{item.phone}</TableCell>
@@ -330,6 +418,36 @@ const DevicesPage = () => {
               <Button onClick={handleExport} variant="text">
                 {t('reportExport')}
               </Button>
+              {selectedCount > 0 && (
+                <Box
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    ml: 2,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span>Selected: {selectedCount}</span>
+                  {!deviceReadonly && (
+                    <>
+                      <Button
+                        onClick={() => setDeleteDialogOpen(true)}
+                        variant="text"
+                        color="error"
+                      >
+                        Delete selected
+                      </Button>
+                      <Button onClick={() => setBulkGroupDialogOpen(true)} variant="text">
+                        Change group
+                      </Button>
+                    </>
+                  )}
+                  <Button onClick={() => setSelectedDeviceIds([])} variant="text">
+                    Clear selection
+                  </Button>
+                </Box>
+              )}
             </TableCell>
             <TableCell colSpan={manager ? 9 : 8} align="right">
               <FormControlLabel
@@ -413,6 +531,59 @@ const DevicesPage = () => {
             variant="contained"
           >
             {importing ? 'Importing...' : 'Import'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => !deleteProcessing && setDeleteDialogOpen(false)}
+      >
+        <DialogTitle>Delete selected devices</DialogTitle>
+        <DialogContent>Delete {selectedCount} selected devices?</DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deleteProcessing}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleBulkDelete}
+            color="error"
+            variant="contained"
+            disabled={deleteProcessing}
+          >
+            {deleteProcessing ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={bulkGroupDialogOpen}
+        onClose={() => !bulkUpdating && setBulkGroupDialogOpen(false)}
+      >
+        <DialogTitle>Change group for selected devices</DialogTitle>
+        <DialogContent>
+          <FormControl fullWidth sx={{ mt: 1, minWidth: 260 }}>
+            <InputLabel id="bulk-group-select-label">Group</InputLabel>
+            <Select
+              labelId="bulk-group-select-label"
+              value={bulkGroupId}
+              label="Group"
+              onChange={(event) => setBulkGroupId(Number(event.target.value))}
+            >
+              <MenuItem value={0}>No group</MenuItem>
+              {Object.values(groups).map((group) => (
+                <MenuItem key={group.id} value={group.id}>
+                  {group.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {/* TODO: Add optional bulk updates for category/model/contact with explicit per-field opt-in checkboxes. */}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkGroupDialogOpen(false)} disabled={bulkUpdating}>
+            Cancel
+          </Button>
+          <Button onClick={handleBulkChangeGroup} variant="contained" disabled={bulkUpdating}>
+            {bulkUpdating ? 'Updating...' : 'Update'}
           </Button>
         </DialogActions>
       </Dialog>
