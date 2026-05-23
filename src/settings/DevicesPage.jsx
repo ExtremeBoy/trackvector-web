@@ -11,6 +11,11 @@ import {
   TableFooter,
   FormControlLabel,
   Switch,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Chip,
 } from '@mui/material';
 import LinkIcon from '@mui/icons-material/Link';
 import { useTheme } from '@mui/material/styles';
@@ -53,6 +58,15 @@ const DevicesPage = () => {
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const importInputRef = useRef(null);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importRows, setImportRows] = useState([]);
+  const [importSummary, setImportSummary] = useState({
+    willCreate: 0,
+    willSkip: 0,
+    failedInvalid: 0,
+    groupsToCreate: 0,
+  });
+  const [importing, setImporting] = useState(false);
 
   const loadItems = useCallback(
     async (offset, signal) => {
@@ -103,6 +117,15 @@ const DevicesPage = () => {
     sheets.set(t('deviceTitle'), data);
     await exportExcel(t('deviceTitle'), 'devices.xlsx', sheets, theme);
   };
+  const parseCsvText = (text) => text.split(/\r?\n/).filter((line) => line.trim());
+
+  const parseCsvHeaders = (headerLine) => headerLine.split(',').map((header) => header.trim());
+
+  const parseCsvRow = (headers, line) => {
+    const values = line.split(',').map((value) => value.trim());
+    return Object.fromEntries(headers.map((header, index) => [header, values[index] || '']));
+  };
+
   const handleImport = async (event) => {
     const file = event.target.files[0];
     event.target.value = null;
@@ -112,14 +135,14 @@ const DevicesPage = () => {
     }
 
     const text = await file.text();
-    const lines = text.split(/\r?\n/).filter((line) => line.trim());
+    const lines = parseCsvText(text);
 
     if (lines.length < 2) {
       alert('CSV file is empty');
       return;
     }
 
-    const headers = lines[0].split(',').map((header) => header.trim());
+    const headers = parseCsvHeaders(lines[0]);
     const required = ['name', 'uniqueId'];
 
     if (!required.every((field) => headers.includes(field))) {
@@ -130,23 +153,51 @@ const DevicesPage = () => {
     const existingResponse = await fetchOrThrow('/api/devices?all=true');
     const existingDevices = await existingResponse.json();
     const existingUniqueIds = new Set(existingDevices.map((device) => device.uniqueId));
-    const groupByName = new Map(Object.values(groups).map((group) => [group.name, group.id]));
+    const existingGroupNames = new Set(Object.values(groups).map((group) => group.name));
     const csvUniqueIds = new Set();
+    const groupsToCreate = new Set();
+
+    const rows = lines
+      .slice(1)
+      .map((line) => parseCsvRow(headers, line))
+      .map((row) => {
+        if (!row.name || !row.uniqueId) {
+          return { ...row, status: 'invalid', reason: 'missing name or uniqueId' };
+        }
+        if (csvUniqueIds.has(row.uniqueId)) {
+          return { ...row, status: 'skip', reason: `duplicate uniqueId in CSV (${row.uniqueId})` };
+        }
+        csvUniqueIds.add(row.uniqueId);
+        if (existingUniqueIds.has(row.uniqueId)) {
+          return { ...row, status: 'skip', reason: `uniqueId already exists (${row.uniqueId})` };
+        }
+        if (row.group && !existingGroupNames.has(row.group)) {
+          groupsToCreate.add(row.group);
+        }
+        return { ...row, status: 'create', reason: 'will be created' };
+      });
+
+    setImportRows(rows);
+    setImportSummary({
+      willCreate: rows.filter((row) => row.status === 'create').length,
+      willSkip: rows.filter((row) => row.status === 'skip').length,
+      failedInvalid: rows.filter((row) => row.status === 'invalid').length,
+      groupsToCreate: groupsToCreate.size,
+    });
+    setImportDialogOpen(true);
+  };
+
+  const handleConfirmImport = async () => {
+    setImporting(true);
+    const groupByName = new Map(Object.values(groups).map((group) => [group.name, group.id]));
     const getGroupId = async (groupName) => {
-      if (!groupName) {
-        return 0;
-      }
-
-      if (groupByName.has(groupName)) {
-        return groupByName.get(groupName);
-      }
-
+      if (!groupName) return 0;
+      if (groupByName.has(groupName)) return groupByName.get(groupName);
       const response = await fetchOrThrow('/api/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: groupName }),
       });
-
       const group = await response.json();
       groupByName.set(group.name, group.id);
       return group.id;
@@ -157,30 +208,16 @@ const DevicesPage = () => {
     let failed = 0;
     const errors = [];
 
-    for (const line of lines.slice(1)) {
-      const values = line.split(',').map((value) => value.trim());
-      const row = Object.fromEntries(headers.map((header, index) => [header, values[index] || '']));
-
-      if (!row.name || !row.uniqueId) {
-        failed += 1;
-        errors.push(`${row.name || 'Unknown'}: missing name or uniqueId`);
+    for (const row of importRows) {
+      if (row.status !== 'create') {
+        if (row.status === 'invalid') {
+          failed += 1;
+        } else {
+          skipped += 1;
+        }
+        errors.push(`${row.name || 'Unknown'}: ${row.reason}`);
         continue;
       }
-
-      if (csvUniqueIds.has(row.uniqueId)) {
-        skipped += 1;
-        errors.push(`${row.name}: duplicate uniqueId in CSV (${row.uniqueId})`);
-        continue;
-      }
-
-      csvUniqueIds.add(row.uniqueId);
-
-      if (existingUniqueIds.has(row.uniqueId)) {
-        skipped += 1;
-        errors.push(`${row.name}: uniqueId already exists (${row.uniqueId})`);
-        continue;
-      }
-
       try {
         await fetchOrThrow('/api/devices', {
           method: 'POST',
@@ -201,12 +238,12 @@ const DevicesPage = () => {
         errors.push(`${row.name}: ${error.message}`);
       }
     }
-
+    setImporting(false);
+    setImportDialogOpen(false);
+    setImportRows([]);
     reload();
     alert(
-      `Import completed. Created: ${created}. Skipped: ${skipped}. Failed: ${failed}${
-        errors.length ? `\n\n${errors.join('\n')}` : ''
-      }`,
+      `Import completed. Created: ${created}. Skipped: ${skipped}. Failed: ${failed}${errors.length ? `\n\n${errors.join('\n')}` : ''}`,
     );
   };
 
@@ -313,6 +350,72 @@ const DevicesPage = () => {
       </Table>
       {hasMore && !loading && <div ref={sentinelRef} />}
       <CollectionFab editPath="/settings/device" />
+      <Dialog
+        open={importDialogOpen}
+        onClose={() => !importing && setImportDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>CSV Import Preview</DialogTitle>
+        <DialogContent>
+          <div>Will create: {importSummary.willCreate}</div>
+          <div>Will skip: {importSummary.willSkip}</div>
+          <div>Failed/invalid: {importSummary.failedInvalid}</div>
+          <div>Groups to create: {importSummary.groupsToCreate}</div>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>name</TableCell>
+                <TableCell>uniqueId</TableCell>
+                <TableCell>model</TableCell>
+                <TableCell>category</TableCell>
+                <TableCell>phone</TableCell>
+                <TableCell>contact</TableCell>
+                <TableCell>group</TableCell>
+                <TableCell>status/reason</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {importRows.map((row, index) => (
+                <TableRow key={`${row.uniqueId || 'missing'}-${index}`}>
+                  <TableCell>{row.name}</TableCell>
+                  <TableCell>{row.uniqueId}</TableCell>
+                  <TableCell>{row.model}</TableCell>
+                  <TableCell>{row.category}</TableCell>
+                  <TableCell>{row.phone}</TableCell>
+                  <TableCell>{row.contact}</TableCell>
+                  <TableCell>{row.group}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={`${row.status}: ${row.reason}`}
+                      color={
+                        row.status === 'create'
+                          ? 'success'
+                          : row.status === 'skip'
+                            ? 'warning'
+                            : 'error'
+                      }
+                    />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportDialogOpen(false)} disabled={importing}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmImport}
+            disabled={importing || importSummary.willCreate === 0}
+            variant="contained"
+          >
+            {importing ? 'Importing...' : 'Import'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </PageLayout>
   );
 };
