@@ -5,6 +5,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Collapse,
   IconButton,
   Paper,
   Slider,
@@ -18,6 +19,7 @@ import {
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -219,7 +221,7 @@ const tableColumns = [
   { id: 'speed', width: 110 },
   { id: 'course', width: 90 },
   { id: 'coordinates', width: 150 },
-  { id: 'address', width: 260 },
+  { id: 'address', width: 320 },
   { id: 'ignition', width: 110 },
   { id: 'fuel', width: 110 },
   { id: 'powerBattery', width: 170 },
@@ -231,27 +233,137 @@ const tableColumns = [
 
 const gridTemplateColumns = tableColumns.map((column) => `${column.width}px`).join(' ');
 
+const TrackAddressValue = ({ packet, addressCache, setAddressCache }) => {
+  const latitude = packet.latitude;
+  const longitude = packet.longitude;
+  const originalAddress = packet.address;
+  const cacheKey = `${latitude},${longitude}`;
+  const cached = addressCache[cacheKey];
+
+  useEffect(() => {
+    if (originalAddress || cached) {
+      return undefined;
+    }
+
+    let active = true;
+    setAddressCache((previous) => ({
+      ...previous,
+      [cacheKey]: { loading: true },
+    }));
+
+    const query = new URLSearchParams({ latitude, longitude });
+    fetchOrThrow(`/api/server/geocode?${query.toString()}`)
+      .then((response) => response.text())
+      .then((address) => {
+        if (active) {
+          setAddressCache((previous) => ({
+            ...previous,
+            [cacheKey]: { address },
+          }));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAddressCache((previous) => ({
+            ...previous,
+            [cacheKey]: { error: true },
+          }));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [cacheKey, cached, latitude, longitude, originalAddress, setAddressCache]);
+
+  if (originalAddress) {
+    return originalAddress;
+  }
+  if (cached?.address) {
+    return cached.address;
+  }
+  if (cached?.loading) {
+    return '...';
+  }
+  return `${latitude}, ${longitude}`;
+};
+
 const useStyles = makeStyles()((theme) => ({
+  shell: {
+    background: 'linear-gradient(180deg, #0f1720 0%, #111827 42%, #151b22 100%)',
+    color: '#d9e2ec',
+  },
+  toolbarHeader: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 4,
+    backgroundColor: '#111820',
+    borderBottom: '1px solid rgba(148, 163, 184, 0.22)',
+    boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
+    '& > div': {
+      display: 'flex',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: theme.spacing(1),
+      padding: theme.spacing(1),
+    },
+    '& > div > div': {
+      flex: '0 1 210px',
+    },
+    '& > div > div:last-child': {
+      order: 4,
+      flex: '0 0 auto',
+    },
+    '& > div > div:last-child .MuiButton-root': {
+      minWidth: 118,
+      color: '#04130b',
+      border: 0,
+      backgroundColor: '#22c55e',
+      boxShadow: '0 0 0 1px rgba(34, 197, 94, 0.26), 0 8px 18px rgba(34, 197, 94, 0.18)',
+      '&:hover': {
+        backgroundColor: '#16a34a',
+      },
+      '&.Mui-disabled': {
+        color: 'rgba(226, 232, 240, 0.38)',
+        backgroundColor: 'rgba(34, 197, 94, 0.18)',
+      },
+    },
+    '& .MuiInputBase-root': {
+      color: '#e5eef8',
+      backgroundColor: 'rgba(15, 23, 32, 0.88)',
+    },
+    '& .MuiInputLabel-root': {
+      color: '#93a4b7',
+    },
+    '& .MuiOutlinedInput-notchedOutline': {
+      borderColor: 'rgba(148, 163, 184, 0.24)',
+    },
+  },
   content: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)',
-    gridTemplateRows: 'minmax(260px, 34vh) minmax(260px, 1fr) minmax(280px, 34vh)',
-    gap: theme.spacing(2),
-    padding: theme.spacing(0, 2, 2),
+    gridTemplateColumns: 'minmax(0, 7fr) minmax(320px, 3fr)',
+    gridTemplateRows: 'minmax(380px, 46vh) minmax(260px, 32vh) minmax(240px, 26vh)',
+    gap: theme.spacing(1.25),
+    padding: theme.spacing(1.25),
     minHeight: 0,
+    overflow: 'auto',
     [theme.breakpoints.down('lg')]: {
       gridTemplateColumns: '1fr',
-      gridTemplateRows: '260px minmax(280px, 1fr) minmax(280px, auto) minmax(220px, auto)',
+      gridTemplateRows: '320px minmax(280px, 1fr) minmax(280px, auto) minmax(260px, auto)',
     },
   },
   panel: {
     minHeight: 0,
     overflow: 'hidden',
-    borderRadius: theme.shape.borderRadius,
+    borderRadius: 6,
+    borderColor: 'rgba(148, 163, 184, 0.22)',
+    backgroundColor: 'rgba(15, 23, 32, 0.92)',
+    color: '#d9e2ec',
   },
   mapPanel: {
     gridColumn: '1 / 2',
     position: 'relative',
+    boxShadow: 'inset 0 0 0 1px rgba(34, 197, 94, 0.05)',
   },
   tablePanel: {
     gridColumn: '1 / 2',
@@ -259,9 +371,15 @@ const useStyles = makeStyles()((theme) => ({
   detailsPanel: {
     gridColumn: '2 / 3',
     gridRow: '1 / 4',
+    position: 'sticky',
+    top: theme.spacing(1.25),
+    alignSelf: 'start',
+    height: 'calc(100vh - 118px)',
     [theme.breakpoints.down('lg')]: {
       gridColumn: '1 / 2',
       gridRow: 'auto',
+      position: 'static',
+      height: 'auto',
     },
   },
   chartsPanel: {
@@ -278,12 +396,13 @@ const useStyles = makeStyles()((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
     padding: theme.spacing(2),
-    color: theme.palette.text.secondary,
-    backgroundColor: theme.palette.action.hover,
+    color: '#91a3b7',
+    backgroundColor: 'rgba(15, 23, 32, 0.82)',
   },
   tableContainer: {
     height: '100%',
     overflowX: 'auto',
+    backgroundColor: '#101820',
   },
   virtualTable: {
     minWidth: tableColumns.reduce((sum, column) => sum + column.width, 0),
@@ -297,8 +416,11 @@ const useStyles = makeStyles()((theme) => ({
     position: 'sticky',
     top: 0,
     zIndex: 1,
-    backgroundColor: theme.palette.background.paper,
-    borderBottom: `1px solid ${theme.palette.divider}`,
+    backgroundColor: '#182331',
+    borderBottom: '1px solid rgba(148, 163, 184, 0.24)',
+    color: '#93c5fd',
+    textTransform: 'uppercase',
+    letterSpacing: 0,
   },
   virtualList: {
     flexGrow: 1,
@@ -308,25 +430,30 @@ const useStyles = makeStyles()((theme) => ({
     display: 'grid',
     gridTemplateColumns,
     alignItems: 'center',
-    borderBottom: `1px solid ${theme.palette.divider}`,
+    borderBottom: '1px solid rgba(148, 163, 184, 0.12)',
     cursor: 'pointer',
+    color: '#dce6ef',
+    '&:nth-of-type(even)': {
+      backgroundColor: 'rgba(30, 41, 54, 0.48)',
+    },
     '&:hover': {
-      backgroundColor: theme.palette.action.hover,
+      backgroundColor: 'rgba(59, 130, 246, 0.14)',
     },
   },
   virtualRowSelected: {
-    backgroundColor: theme.palette.action.selected,
+    backgroundColor: 'rgba(34, 197, 94, 0.16) !important',
+    boxShadow: 'inset 3px 0 0 #22c55e, inset 0 0 18px rgba(34, 197, 94, 0.08)',
     '&:hover': {
-      backgroundColor: theme.palette.action.selected,
+      backgroundColor: 'rgba(34, 197, 94, 0.2) !important',
     },
   },
   virtualCell: {
     minWidth: 0,
-    padding: theme.spacing(0.5, 1),
+    padding: theme.spacing(0.4, 0.9),
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    fontSize: theme.typography.body2.fontSize,
+    fontSize: theme.typography.caption.fontSize,
   },
   virtualCellMultiline: {
     whiteSpace: 'normal',
@@ -337,13 +464,72 @@ const useStyles = makeStyles()((theme) => ({
     zIndex: 1,
     top: theme.spacing(1),
     left: theme.spacing(1),
+    backgroundColor: 'rgba(15, 23, 32, 0.88)',
+    color: '#e2e8f0',
+    '&:hover': {
+      backgroundColor: 'rgba(30, 41, 59, 0.96)',
+    },
+  },
+  mapLegend: {
+    position: 'absolute',
+    right: theme.spacing(1),
+    bottom: theme.spacing(1),
+    zIndex: 1,
+    display: 'flex',
+    gap: theme.spacing(1),
+    padding: theme.spacing(0.75, 1),
+    border: '1px solid rgba(148, 163, 184, 0.22)',
+    borderRadius: 6,
+    color: '#d9e2ec',
+    backgroundColor: 'rgba(15, 23, 32, 0.86)',
+    backdropFilter: 'blur(8px)',
+  },
+  legendItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    fontSize: theme.typography.caption.fontSize,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    backgroundColor: '#22c55e',
+  },
+  toolbarActions: {
+    order: 3,
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    flex: '0 0 auto !important',
+    '& .MuiButton-root, & .MuiIconButton-root': {
+      border: '1px solid rgba(148, 163, 184, 0.24)',
+      color: '#d9e2ec',
+      backgroundColor: 'rgba(15, 23, 32, 0.84)',
+    },
+  },
+  filterPanel: {
+    order: 8,
+    flex: '1 0 100% !important',
+    padding: theme.spacing(0, 1, 1),
+  },
+  filterPanelInner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+    flexWrap: 'wrap',
+    padding: theme.spacing(1),
+    border: '1px solid rgba(148, 163, 184, 0.18)',
+    borderRadius: 6,
+    backgroundColor: 'rgba(2, 6, 23, 0.28)',
   },
   charts: {
     height: '100%',
     display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: theme.spacing(1),
-    padding: theme.spacing(1),
+    gridTemplateColumns: '1fr',
+    gridTemplateRows: 'repeat(4, minmax(0, 1fr))',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.75),
     [theme.breakpoints.down('md')]: {
       gridTemplateColumns: '1fr',
     },
@@ -352,9 +538,13 @@ const useStyles = makeStyles()((theme) => ({
     minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
+    border: '1px solid rgba(148, 163, 184, 0.14)',
+    borderRadius: 4,
+    backgroundColor: 'rgba(2, 6, 23, 0.28)',
   },
   chartTitle: {
-    padding: theme.spacing(0, 1),
+    padding: theme.spacing(0.5, 1),
+    color: '#cbd5e1',
   },
   chartBody: {
     flexGrow: 1,
@@ -364,8 +554,9 @@ const useStyles = makeStyles()((theme) => ({
     display: 'flex',
     alignItems: 'center',
     gap: theme.spacing(1),
-    flex: '2 1 420px',
+    flex: '1 1 auto',
     minWidth: 0,
+    flexWrap: 'wrap',
   },
   replaySlider: {
     minWidth: 140,
@@ -373,6 +564,21 @@ const useStyles = makeStyles()((theme) => ({
   },
   speedGroup: {
     flexShrink: 0,
+  },
+  diagnosticFilter: {
+    flex: '0 0 auto',
+  },
+  diagnosticFilterGroup: {
+    flexWrap: 'wrap',
+    '& .MuiToggleButton-root': {
+      color: '#cbd5e1',
+      borderColor: 'rgba(148, 163, 184, 0.22)',
+      padding: theme.spacing(0.35, 1),
+      '&.Mui-selected': {
+        color: '#052e16',
+        backgroundColor: '#22c55e',
+      },
+    },
   },
   mobileTabs: {
     display: 'none',
@@ -385,6 +591,71 @@ const useStyles = makeStyles()((theme) => ({
     display: 'flex',
     gap: theme.spacing(0.5),
     flexWrap: 'wrap',
+  },
+  sidebar: {
+    height: '100%',
+    display: 'grid',
+    gridTemplateRows: 'auto auto minmax(0, 1fr)',
+    minHeight: 0,
+  },
+  sidebarSection: {
+    padding: theme.spacing(1.25),
+    borderBottom: '1px solid rgba(148, 163, 184, 0.16)',
+    '& .MuiIconButton-root': {
+      color: '#d9e2ec',
+      border: '1px solid rgba(148, 163, 184, 0.18)',
+      backgroundColor: 'rgba(15, 23, 32, 0.62)',
+    },
+    '& .MuiToggleButton-root': {
+      color: '#cbd5e1',
+      borderColor: 'rgba(148, 163, 184, 0.22)',
+      padding: theme.spacing(0.35, 0.8),
+      '&.Mui-selected': {
+        color: '#052e16',
+        backgroundColor: '#22c55e',
+      },
+    },
+  },
+  sidebarTitle: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing(1),
+    marginBottom: theme.spacing(1),
+  },
+  metricGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: theme.spacing(0.75),
+  },
+  metric: {
+    padding: theme.spacing(0.75),
+    border: '1px solid rgba(148, 163, 184, 0.14)',
+    borderRadius: 4,
+    backgroundColor: 'rgba(2, 6, 23, 0.24)',
+  },
+  metricLabel: {
+    color: '#94a3b8',
+    fontSize: theme.typography.caption.fontSize,
+  },
+  metricValue: {
+    color: '#f8fafc',
+    fontWeight: 600,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  detailsTabs: {
+    minHeight: 36,
+    borderBottom: '1px solid rgba(148, 163, 184, 0.16)',
+    '& .MuiTab-root': {
+      minHeight: 36,
+      color: '#94a3b8',
+      padding: theme.spacing(0.5, 1),
+    },
+    '& .Mui-selected': {
+      color: '#e2e8f0',
+    },
   },
   detailsHeaderRow: {
     display: 'flex',
@@ -402,19 +673,28 @@ const useStyles = makeStyles()((theme) => ({
     flexDirection: 'column',
     minHeight: 0,
   },
+  detailsBody: {
+    minHeight: 0,
+    overflow: 'auto',
+    padding: theme.spacing(1.25),
+  },
   detailsHeader: {
-    padding: theme.spacing(2),
-    borderBottom: `1px solid ${theme.palette.divider}`,
+    padding: theme.spacing(1.25),
+    borderBottom: '1px solid rgba(148, 163, 184, 0.16)',
   },
   json: {
     margin: 0,
-    padding: theme.spacing(2),
+    padding: theme.spacing(1),
     overflow: 'auto',
     flexGrow: 1,
     fontSize: theme.typography.caption.fontSize,
     fontFamily: theme.typography.fontFamilyMonospaced,
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+    color: '#cbd5e1',
+    border: '1px solid rgba(148, 163, 184, 0.14)',
+    borderRadius: 4,
+    backgroundColor: '#020617',
   },
   state: {
     display: 'flex',
@@ -439,6 +719,9 @@ const TrackInspectorPage = () => {
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(1);
   const [activeMobileTab, setActiveMobileTab] = useState('map');
+  const [detailsTab, setDetailsTab] = useState('details');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [addressCache, setAddressCache] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -769,9 +1052,16 @@ const TrackInspectorPage = () => {
         return renderBooleanChip(packet.valid, t('positionValid'), t('trackInspectorInvalidGps'));
       case 'speed':
       case 'course':
-      case 'address':
       case 'protocol':
         return renderPositionValue(packet, columnId);
+      case 'address':
+        return (
+          <TrackAddressValue
+            packet={packet}
+            addressCache={addressCache}
+            setAddressCache={setAddressCache}
+          />
+        );
       case 'coordinates':
         return (
           <>
@@ -845,7 +1135,11 @@ const TrackInspectorPage = () => {
         className={cx(classes.virtualRow, selectedId === packet.id && classes.virtualRowSelected)}
         style={style}
         role="row"
-        onClick={() => selectPacket(packet)}
+        onClick={(event) => {
+          if (!event.defaultPrevented) {
+            selectPacket(packet);
+          }
+        }}
       >
         {tableColumns.map((column) => (
           <div
@@ -893,7 +1187,7 @@ const TrackInspectorPage = () => {
             listRef={listRef}
             rowComponent={renderPacketRow}
             rowCount={filteredPackets.length}
-            rowHeight={52}
+            rowHeight={42}
             rowProps={{
               packets: filteredPackets,
               selectedId: selectedPacket?.id,
@@ -906,68 +1200,193 @@ const TrackInspectorPage = () => {
     );
   };
 
+  const renderMetric = (label, value) => (
+    <div className={classes.metric}>
+      <div className={classes.metricLabel}>{label}</div>
+      <div className={classes.metricValue}>{value || '-'}</div>
+    </div>
+  );
+
+  const renderReplayPanel = () => (
+    <div className={classes.sidebarSection}>
+      <div className={classes.sidebarTitle}>
+        <Typography variant="subtitle2">Replay</Typography>
+        <Chip
+          size="small"
+          color={replayPlaying ? 'success' : 'default'}
+          label={replayPlaying ? t('trackInspectorPlay') : t('trackInspectorPause')}
+          variant="outlined"
+        />
+      </div>
+      <div className={classes.replayControls}>
+        <IconButton
+          size="small"
+          disabled={!packets.length}
+          onClick={() => stepReplay(-1)}
+          title={t('trackInspectorStepBack')}
+        >
+          <SkipPreviousIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
+          disabled={!packets.length}
+          onClick={() => setReplayPlaying((value) => !value)}
+          title={t(replayPlaying ? 'trackInspectorPause' : 'trackInspectorPlay')}
+        >
+          {replayPlaying ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
+        </IconButton>
+        <IconButton
+          size="small"
+          disabled={!packets.length}
+          onClick={() => stepReplay(1)}
+          title={t('trackInspectorStepForward')}
+        >
+          <SkipNextIcon fontSize="small" />
+        </IconButton>
+        <ToggleButtonGroup
+          className={classes.speedGroup}
+          value={replaySpeed}
+          exclusive
+          size="small"
+          onChange={(event, value) => value && setReplaySpeed(value)}
+        >
+          {replaySpeeds.map((speed) => (
+            <ToggleButton key={speed} value={speed}>
+              {speed}x
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+        <Slider
+          className={classes.replaySlider}
+          size="small"
+          disabled={!packets.length}
+          min={0}
+          max={Math.max(packets.length - 1, 0)}
+          value={selectedPacket?.index || 0}
+          onChange={(event, value) => selectPacket(packets[value])}
+        />
+      </div>
+    </div>
+  );
+
   const renderPacketDetails = () => {
     if (!selectedPacket) {
       return (
-        <div className={classes.placeholder}>
-          <Typography variant="body2">{t('trackInspectorDetailsPlaceholder')}</Typography>
+        <div className={classes.sidebar}>
+          {renderReplayPanel()}
+          <div className={classes.placeholder}>
+            <Typography variant="body2">{t('trackInspectorDetailsPlaceholder')}</Typography>
+          </div>
         </div>
       );
     }
 
     return (
-      <div className={classes.details}>
-        <div className={classes.detailsHeader}>
-          <div className={classes.detailsHeaderRow}>
-            <div>
-              <Typography variant="subtitle2">
-                #{selectedPacket.index + 1} / {selectedPacket.id}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {selectedPacket.fixTime}
-              </Typography>
-            </div>
-            <div className={classes.detailsActions}>
-              <IconButton
-                size="small"
-                title={t('trackInspectorCopyCoordinates')}
-                onClick={() => copyText(`${selectedPacket.latitude}, ${selectedPacket.longitude}`)}
-              >
-                <ContentCopyIcon fontSize="small" />
-              </IconButton>
-              <IconButton
-                size="small"
-                title={t('trackInspectorCopyJson')}
-                onClick={() =>
-                  copyText(
-                    JSON.stringify(
-                      {
-                        diagnostics: selectedPacket.diagnostics,
-                        attributes: selectedPacket.attributes,
-                        rawPosition: selectedPacket.rawPosition,
-                      },
-                      null,
-                      2,
-                    ),
-                  )
-                }
-              >
-                <ContentCopyIcon fontSize="small" />
-              </IconButton>
-            </div>
+      <div className={classes.sidebar}>
+        {renderReplayPanel()}
+        <div className={classes.sidebarSection}>
+          <div className={classes.sidebarTitle}>
+            <Typography variant="subtitle2">Diagnostics</Typography>
+            {renderDiagnosticBadges(selectedPacket)}
+          </div>
+          <div className={classes.metricGrid}>
+            {renderMetric(columnLabels.speed, renderPositionValue(selectedPacket, 'speed'))}
+            {renderMetric(columnLabels.valid, renderPacketCell(selectedPacket, 'valid'))}
+            {renderMetric(columnLabels.fuel, renderPacketCell(selectedPacket, 'fuel'))}
+            {renderMetric(columnLabels.odometer, renderPacketCell(selectedPacket, 'odometer'))}
           </div>
         </div>
-        <pre className={classes.json}>
-          {JSON.stringify(
-            {
-              diagnostics: selectedPacket.diagnostics,
-              attributes: selectedPacket.attributes,
-              rawPosition: selectedPacket.rawPosition,
-            },
-            null,
-            2,
-          )}
-        </pre>
+        <div className={classes.details}>
+          <div className={classes.detailsHeader}>
+            <div className={classes.detailsHeaderRow}>
+              <div>
+                <Typography variant="subtitle2">
+                  #{selectedPacket.index + 1} / {selectedPacket.id}
+                </Typography>
+                <Typography variant="caption" color="#94a3b8">
+                  {selectedPacket.fixTime}
+                </Typography>
+              </div>
+              <div className={classes.detailsActions}>
+                <IconButton
+                  size="small"
+                  title={t('trackInspectorCopyCoordinates')}
+                  onClick={() =>
+                    copyText(`${selectedPacket.latitude}, ${selectedPacket.longitude}`)
+                  }
+                >
+                  <ContentCopyIcon fontSize="small" />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  title={t('trackInspectorCopyJson')}
+                  onClick={() =>
+                    copyText(
+                      JSON.stringify(
+                        {
+                          diagnostics: selectedPacket.diagnostics,
+                          attributes: selectedPacket.attributes,
+                          rawPosition: selectedPacket.rawPosition,
+                        },
+                        null,
+                        2,
+                      ),
+                    )
+                  }
+                >
+                  <ContentCopyIcon fontSize="small" />
+                </IconButton>
+              </div>
+            </div>
+          </div>
+          <Tabs
+            className={classes.detailsTabs}
+            value={detailsTab}
+            onChange={(event, value) => setDetailsTab(value)}
+            variant="fullWidth"
+          >
+            <Tab value="details" label="Details" />
+            <Tab value="attributes" label="Attributes" />
+            <Tab value="diagnostics" label="Diagnostics" />
+            <Tab value="raw" label="Raw" />
+          </Tabs>
+          <div className={classes.detailsBody}>
+            {detailsTab === 'details' && (
+              <div className={classes.metricGrid}>
+                {renderMetric(columnLabels.fixTime, renderPositionValue(selectedPacket, 'fixTime'))}
+                {renderMetric(
+                  columnLabels.serverTime,
+                  renderPositionValue(selectedPacket, 'serverTime'),
+                )}
+                {renderMetric(
+                  columnLabels.coordinates,
+                  `${selectedPacket.latitude}, ${selectedPacket.longitude}`,
+                )}
+                {renderMetric(columnLabels.address, renderPacketCell(selectedPacket, 'address'))}
+                {renderMetric(columnLabels.course, renderPositionValue(selectedPacket, 'course'))}
+                {renderMetric(
+                  columnLabels.protocol,
+                  renderPositionValue(selectedPacket, 'protocol'),
+                )}
+              </div>
+            )}
+            {detailsTab === 'attributes' && (
+              <pre className={classes.json}>
+                {JSON.stringify(selectedPacket.attributes, null, 2)}
+              </pre>
+            )}
+            {detailsTab === 'diagnostics' && (
+              <pre className={classes.json}>
+                {JSON.stringify(selectedPacket.diagnostics, null, 2)}
+              </pre>
+            )}
+            {detailsTab === 'raw' && (
+              <pre className={classes.json}>
+                {JSON.stringify(selectedPacket.rawPosition, null, 2)}
+              </pre>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
@@ -994,6 +1413,20 @@ const TrackInspectorPage = () => {
         >
           {t('trackInspectorFitTrack')}
         </Button>
+        <div className={classes.mapLegend}>
+          <span className={classes.legendItem}>
+            <span className={classes.legendDot} />
+            Track
+          </span>
+          <span className={classes.legendItem}>
+            <span className={classes.legendDot} style={{ backgroundColor: '#38bdf8' }} />
+            Selected
+          </span>
+          <span className={classes.legendItem}>
+            <span className={classes.legendDot} style={{ backgroundColor: '#f97316' }} />
+            Events
+          </span>
+        </div>
         <MapView>
           {[...new Set(positions.map((position) => position.deviceId))].map((deviceId) => {
             const devicePositions = positions.filter((position) => position.deviceId === deviceId);
@@ -1032,12 +1465,27 @@ const TrackInspectorPage = () => {
       <div className={classes.chartBody}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} onClick={selectChartPacket}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="index" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} width={42} />
-            <Tooltip labelFormatter={(value) => chartData[value]?.fixTime || value} />
+            <CartesianGrid stroke="rgba(148, 163, 184, 0.16)" strokeDasharray="3 3" />
+            <XAxis
+              dataKey="index"
+              tick={{ fontSize: 11, fill: '#94a3b8' }}
+              stroke="rgba(148, 163, 184, 0.3)"
+            />
+            <YAxis
+              tick={{ fontSize: 11, fill: '#94a3b8' }}
+              stroke="rgba(148, 163, 184, 0.3)"
+              width={42}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: '#0f1720',
+                border: '1px solid rgba(148, 163, 184, 0.24)',
+                color: '#e2e8f0',
+              }}
+              labelFormatter={(value) => chartData[value]?.fixTime || value}
+            />
             {selectedPacket && (
-              <ReferenceLine x={selectedPacket.index} stroke="#d32f2f" strokeDasharray="3 3" />
+              <ReferenceLine x={selectedPacket.index} stroke="#22c55e" strokeDasharray="3 3" />
             )}
             {children}
           </LineChart>
@@ -1059,22 +1507,22 @@ const TrackInspectorPage = () => {
       <div className={classes.charts}>
         {renderChart(
           t('trackInspectorSpeedChart'),
-          <Line key="speed" type="monotone" dataKey="speed" dot={false} stroke="#1976d2" />,
+          <Line key="speed" type="monotone" dataKey="speed" dot={false} stroke="#38bdf8" />,
         )}
         {renderChart(
           t('trackInspectorFuelChart'),
-          <Line key="fuel" type="monotone" dataKey="fuel" dot={false} stroke="#2e7d32" />,
+          <Line key="fuel" type="monotone" dataKey="fuel" dot={false} stroke="#22c55e" />,
         )}
         {renderChart(
           t('trackInspectorPowerChart'),
           <>
-            <Line type="monotone" dataKey="power" dot={false} stroke="#ed6c02" />
-            <Line type="monotone" dataKey="battery" dot={false} stroke="#9c27b0" />
+            <Line type="monotone" dataKey="power" dot={false} stroke="#f97316" />
+            <Line type="monotone" dataKey="battery" dot={false} stroke="#a78bfa" />
           </>,
         )}
         {renderChart(
           t('trackInspectorIgnitionChart'),
-          <Line key="ignition" type="stepAfter" dataKey="ignition" dot={false} stroke="#d32f2f" />,
+          <Line key="ignition" type="stepAfter" dataKey="ignition" dot={false} stroke="#f43f5e" />,
         )}
       </div>
     );
@@ -1082,60 +1530,17 @@ const TrackInspectorPage = () => {
 
   return (
     <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportTrackInspector']}>
-      <div className={reportClasses.container}>
-        <div className={reportClasses.header}>
+      <div className={cx(reportClasses.container, classes.shell)}>
+        <div className={cx(reportClasses.header, classes.toolbarHeader)}>
           <ReportFilter deviceType="single" loading={loading} onShow={onShow}>
-            <div className={classes.replayControls}>
-              <IconButton
+            <div className={classes.toolbarActions}>
+              <Button
                 size="small"
-                disabled={!packets.length}
-                onClick={() => stepReplay(-1)}
-                title={t('trackInspectorStepBack')}
+                startIcon={<FilterListIcon />}
+                onClick={() => setFiltersOpen((value) => !value)}
               >
-                <SkipPreviousIcon fontSize="small" />
-              </IconButton>
-              <IconButton
-                size="small"
-                disabled={!packets.length}
-                onClick={() => setReplayPlaying((value) => !value)}
-                title={t(replayPlaying ? 'trackInspectorPause' : 'trackInspectorPlay')}
-              >
-                {replayPlaying ? (
-                  <PauseIcon fontSize="small" />
-                ) : (
-                  <PlayArrowIcon fontSize="small" />
-                )}
-              </IconButton>
-              <IconButton
-                size="small"
-                disabled={!packets.length}
-                onClick={() => stepReplay(1)}
-                title={t('trackInspectorStepForward')}
-              >
-                <SkipNextIcon fontSize="small" />
-              </IconButton>
-              <Slider
-                className={classes.replaySlider}
-                size="small"
-                disabled={!packets.length}
-                min={0}
-                max={Math.max(packets.length - 1, 0)}
-                value={selectedPacket?.index || 0}
-                onChange={(event, value) => selectPacket(packets[value])}
-              />
-              <ToggleButtonGroup
-                className={classes.speedGroup}
-                value={replaySpeed}
-                exclusive
-                size="small"
-                onChange={(event, value) => value && setReplaySpeed(value)}
-              >
-                {replaySpeeds.map((speed) => (
-                  <ToggleButton key={speed} value={speed}>
-                    {speed}x
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
+                Фильтры
+              </Button>
               <IconButton
                 size="small"
                 disabled={!filteredPackets.length}
@@ -1144,23 +1549,49 @@ const TrackInspectorPage = () => {
               >
                 <DownloadIcon fontSize="small" />
               </IconButton>
-            </div>
-            <div className={reportClasses.filterItem}>
-              <ToggleButtonGroup
-                value={diagnosticFilter}
-                exclusive
+              <IconButton
                 size="small"
-                onChange={(event, value) => value && setDiagnosticFilter(value)}
-                fullWidth
+                disabled={!selectedPacket}
+                onClick={() =>
+                  selectedPacket &&
+                  copyText(
+                    JSON.stringify(
+                      {
+                        diagnostics: selectedPacket.diagnostics,
+                        attributes: selectedPacket.attributes,
+                        rawPosition: selectedPacket.rawPosition,
+                      },
+                      null,
+                      2,
+                    ),
+                  )
+                }
+                title={t('trackInspectorCopyJson')}
               >
-                {diagnosticFilters.map((filter) => (
-                  <ToggleButton key={filter} value={filter}>
-                    <Typography variant="button" noWrap>
-                      {t(`trackInspectorFilter${filter[0].toUpperCase()}${filter.slice(1)}`)}
-                    </Typography>
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+            </div>
+            <div className={classes.filterPanel}>
+              <Collapse in={filtersOpen} timeout="auto">
+                <div className={classes.filterPanelInner}>
+                  <Typography variant="subtitle2">Фильтры</Typography>
+                  <ToggleButtonGroup
+                    className={cx(classes.diagnosticFilterGroup, classes.diagnosticFilter)}
+                    value={diagnosticFilter}
+                    exclusive
+                    size="small"
+                    onChange={(event, value) => value && setDiagnosticFilter(value)}
+                  >
+                    {diagnosticFilters.map((filter) => (
+                      <ToggleButton key={filter} value={filter}>
+                        <Typography variant="button" noWrap>
+                          {t(`trackInspectorFilter${filter[0].toUpperCase()}${filter.slice(1)}`)}
+                        </Typography>
+                      </ToggleButton>
+                    ))}
+                  </ToggleButtonGroup>
+                </div>
+              </Collapse>
             </div>
           </ReportFilter>
         </div>
