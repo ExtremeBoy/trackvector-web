@@ -9,6 +9,7 @@ import {
   IconButton,
   Paper,
   Slider,
+  Snackbar,
   Tab,
   Tabs,
   ToggleButton,
@@ -17,6 +18,7 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
+import { useSelector } from 'react-redux';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -85,6 +87,41 @@ const diagnosticFilters = [
 
 const replaySpeeds = [1, 5, 10, 25, 50];
 const mobileTabs = ['map', 'packets', 'details', 'charts'];
+const chartTabs = ['speed', 'fuel', 'power', 'ignition', 'all'];
+
+const roundCoordinate = (value) => Number(value).toFixed(5);
+
+const getAddressCacheKey = (latitude, longitude) =>
+  `${roundCoordinate(latitude)},${roundCoordinate(longitude)}`;
+
+const isPlusCodePart = (part) =>
+  /^[23456789CFGHJMPQRVWX]{4,}\+[23456789CFGHJMPQRVWX]{2,}/i.test(part);
+
+const formatShortAddress = (address) => {
+  if (!address) {
+    return null;
+  }
+  const parts = address
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part && !isPlusCodePart(part));
+  const streetIndex = parts.findIndex((part) => /\p{L}/u.test(part));
+  if (streetIndex < 0) {
+    return null;
+  }
+  const street = parts[streetIndex];
+  const house = parts
+    .slice(0, streetIndex)
+    .reverse()
+    .find((part) => /\d/.test(part));
+  return house ? `${street}, ${house}` : street;
+};
+
+const fetchShortAddress = async (latitude, longitude) => {
+  const query = new URLSearchParams({ latitude, longitude });
+  const response = await fetchOrThrow(`/api/server/geocode?${query.toString()}`);
+  return formatShortAddress(await response.text());
+};
 
 const firstNumber = (attributes, keys) => {
   const key = keys.find((item) => Number.isFinite(Number(attributes[item])));
@@ -236,8 +273,8 @@ const gridTemplateColumns = tableColumns.map((column) => `${column.width}px`).jo
 const TrackAddressValue = ({ packet, addressCache, setAddressCache }) => {
   const latitude = packet.latitude;
   const longitude = packet.longitude;
-  const originalAddress = packet.address;
-  const cacheKey = `${latitude},${longitude}`;
+  const originalAddress = formatShortAddress(packet.address);
+  const cacheKey = getAddressCacheKey(latitude, longitude);
   const cached = addressCache[cacheKey];
 
   useEffect(() => {
@@ -251,14 +288,12 @@ const TrackAddressValue = ({ packet, addressCache, setAddressCache }) => {
       [cacheKey]: { loading: true },
     }));
 
-    const query = new URLSearchParams({ latitude, longitude });
-    fetchOrThrow(`/api/server/geocode?${query.toString()}`)
-      .then((response) => response.text())
+    fetchShortAddress(latitude, longitude)
       .then((address) => {
         if (active) {
           setAddressCache((previous) => ({
             ...previous,
-            [cacheKey]: { address },
+            [cacheKey]: address ? { address } : { error: true },
           }));
         }
       })
@@ -283,9 +318,9 @@ const TrackAddressValue = ({ packet, addressCache, setAddressCache }) => {
     return cached.address;
   }
   if (cached?.loading) {
-    return '...';
+    return '…';
   }
-  return `${latitude}, ${longitude}`;
+  return '—';
 };
 
 const useStyles = makeStyles()((theme) => ({
@@ -310,6 +345,24 @@ const useStyles = makeStyles()((theme) => ({
     '& > div > div': {
       flex: '0 1 210px',
     },
+    '& .MuiInputBase-root, & .MuiButton-root, & .MuiIconButton-root': {
+      height: 42,
+    },
+    '& .MuiInputBase-root': {
+      color: '#e5eef8',
+      backgroundColor: 'rgba(15, 23, 32, 0.88)',
+    },
+    '& .MuiInputLabel-root': {
+      color: '#93a4b7',
+      transform: 'translate(14px, 10px) scale(1)',
+    },
+    '& .MuiInputLabel-shrink': {
+      transform: 'translate(14px, -8px) scale(0.75)',
+    },
+    '& .MuiSelect-select, & .MuiInputBase-input': {
+      paddingTop: 9,
+      paddingBottom: 9,
+    },
     '& > div > div:last-child': {
       order: 4,
       flex: '0 0 auto',
@@ -328,13 +381,6 @@ const useStyles = makeStyles()((theme) => ({
         backgroundColor: 'rgba(34, 197, 94, 0.18)',
       },
     },
-    '& .MuiInputBase-root': {
-      color: '#e5eef8',
-      backgroundColor: 'rgba(15, 23, 32, 0.88)',
-    },
-    '& .MuiInputLabel-root': {
-      color: '#93a4b7',
-    },
     '& .MuiOutlinedInput-notchedOutline': {
       borderColor: 'rgba(148, 163, 184, 0.24)',
     },
@@ -342,7 +388,7 @@ const useStyles = makeStyles()((theme) => ({
   content: {
     display: 'grid',
     gridTemplateColumns: 'minmax(0, 7fr) minmax(320px, 3fr)',
-    gridTemplateRows: 'minmax(380px, 46vh) minmax(260px, 32vh) minmax(240px, 26vh)',
+    gridTemplateRows: 'minmax(380px, 44vh) minmax(280px, 30vh) minmax(320px, 38vh)',
     gap: theme.spacing(1.25),
     padding: theme.spacing(1.25),
     minHeight: 0,
@@ -367,6 +413,7 @@ const useStyles = makeStyles()((theme) => ({
   },
   tablePanel: {
     gridColumn: '1 / 2',
+    minHeight: 280,
   },
   detailsPanel: {
     gridColumn: '2 / 3',
@@ -401,8 +448,22 @@ const useStyles = makeStyles()((theme) => ({
   },
   tableContainer: {
     height: '100%',
-    overflowX: 'auto',
+    overflowX: 'scroll',
+    overflowY: 'hidden',
     backgroundColor: '#101820',
+    scrollbarWidth: 'thin',
+    scrollbarColor: '#64748b #111820',
+    '&::-webkit-scrollbar': {
+      width: 10,
+      height: 10,
+    },
+    '&::-webkit-scrollbar-track': {
+      backgroundColor: '#111820',
+    },
+    '&::-webkit-scrollbar-thumb': {
+      borderRadius: 6,
+      backgroundColor: '#64748b',
+    },
   },
   virtualTable: {
     minWidth: tableColumns.reduce((sum, column) => sum + column.width, 0),
@@ -425,6 +486,18 @@ const useStyles = makeStyles()((theme) => ({
   virtualList: {
     flexGrow: 1,
     minHeight: 0,
+    scrollbarWidth: 'thin',
+    scrollbarColor: '#64748b #101820',
+    '&::-webkit-scrollbar': {
+      width: 10,
+    },
+    '&::-webkit-scrollbar-track': {
+      backgroundColor: '#101820',
+    },
+    '&::-webkit-scrollbar-thumb': {
+      borderRadius: 6,
+      backgroundColor: '#64748b',
+    },
   },
   virtualRow: {
     display: 'grid',
@@ -507,6 +580,9 @@ const useStyles = makeStyles()((theme) => ({
       color: '#d9e2ec',
       backgroundColor: 'rgba(15, 23, 32, 0.84)',
     },
+    '& .MuiIconButton-root': {
+      width: 42,
+    },
   },
   filterPanel: {
     order: 8,
@@ -527,15 +603,39 @@ const useStyles = makeStyles()((theme) => ({
     height: '100%',
     display: 'grid',
     gridTemplateColumns: '1fr',
-    gridTemplateRows: 'repeat(4, minmax(0, 1fr))',
+    gridTemplateRows: 'auto minmax(260px, 1fr)',
     gap: theme.spacing(0.5),
     padding: theme.spacing(0.75),
     [theme.breakpoints.down('md')]: {
       gridTemplateColumns: '1fr',
     },
   },
-  chart: {
+  chartTabs: {
+    minHeight: 34,
+    '& .MuiTab-root': {
+      minHeight: 34,
+      color: '#94a3b8',
+      padding: theme.spacing(0.25, 1.25),
+    },
+    '& .Mui-selected': {
+      color: '#e2e8f0',
+    },
+  },
+  chartGrid: {
     minHeight: 0,
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gridTemplateRows: '1fr',
+    gap: theme.spacing(0.75),
+  },
+  chartGridAll: {
+    gridTemplateRows: 'repeat(4, minmax(150px, 1fr))',
+    overflow: 'auto',
+    scrollbarWidth: 'thin',
+    scrollbarColor: '#64748b #111820',
+  },
+  chart: {
+    minHeight: 180,
     display: 'flex',
     flexDirection: 'column',
     border: '1px solid rgba(148, 163, 184, 0.14)',
@@ -548,7 +648,7 @@ const useStyles = makeStyles()((theme) => ({
   },
   chartBody: {
     flexGrow: 1,
-    minHeight: 0,
+    minHeight: 150,
   },
   replayControls: {
     display: 'flex',
@@ -711,6 +811,7 @@ const TrackInspectorPage = () => {
   const t = useTranslation();
   const positionAttributes = usePositionAttributes(t);
   const listRef = useRef(null);
+  const devices = useSelector((state) => state.devices.items);
 
   const [packets, setPackets] = useState([]);
   const [selectedPacket, setSelectedPacket] = useState(null);
@@ -718,10 +819,13 @@ const TrackInspectorPage = () => {
   const [diagnosticFilter, setDiagnosticFilter] = useState('all');
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(1);
+  const [activeChartTab, setActiveChartTab] = useState('speed');
   const [activeMobileTab, setActiveMobileTab] = useState('map');
   const [detailsTab, setDetailsTab] = useState('details');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [addressCache, setAddressCache] = useState({});
+  const [reportRange, setReportRange] = useState(null);
+  const [snackbar, setSnackbar] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -810,6 +914,47 @@ const TrackInspectorPage = () => {
     return () => clearInterval(interval);
   }, [packets, replayPlaying, replaySpeed]);
 
+  useEffect(() => {
+    if (
+      selectedPacket?.latitude == null ||
+      selectedPacket?.longitude == null ||
+      selectedPacket.address
+    ) {
+      return undefined;
+    }
+    const cacheKey = getAddressCacheKey(selectedPacket.latitude, selectedPacket.longitude);
+    if (addressCache[cacheKey]) {
+      return undefined;
+    }
+
+    let active = true;
+    setAddressCache((previous) => ({
+      ...previous,
+      [cacheKey]: { loading: true },
+    }));
+    fetchShortAddress(selectedPacket.latitude, selectedPacket.longitude)
+      .then((address) => {
+        if (active) {
+          setAddressCache((previous) => ({
+            ...previous,
+            [cacheKey]: address ? { address } : { error: true },
+          }));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAddressCache((previous) => ({
+            ...previous,
+            [cacheKey]: { error: true },
+          }));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [addressCache, selectedPacket]);
+
   const onShow = useCallback(async ({ deviceIds, from, to }) => {
     const query = new URLSearchParams({ from, to });
     deviceIds.forEach((deviceId) => query.append('deviceId', deviceId));
@@ -818,6 +963,8 @@ const TrackInspectorPage = () => {
     setError(null);
     setLoaded(false);
     setReplayPlaying(false);
+    setAddressCache({});
+    setReportRange({ deviceIds, from, to });
     try {
       const response = await fetchOrThrow(`/api/positions?${query.toString()}`, {
         headers: { Accept: 'application/json' },
@@ -888,9 +1035,69 @@ const TrackInspectorPage = () => {
     [packets, selectPacket],
   );
 
-  const copyText = useCallback((value) => {
-    navigator.clipboard?.writeText(value);
+  const copyText = useCallback(async (value) => {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('Clipboard API is not available');
+    }
+    await navigator.clipboard.writeText(value);
   }, []);
+
+  const getDeviceName = useCallback(
+    (packet) => devices[packet?.deviceId]?.name || packet?.deviceId || '',
+    [devices],
+  );
+
+  const getPacketAddress = useCallback(
+    (packet) =>
+      formatShortAddress(packet.address) ||
+      addressCache[getAddressCacheKey(packet.latitude, packet.longitude)]?.address ||
+      '—',
+    [addressCache],
+  );
+
+  const copySummary = useCallback(async () => {
+    if (!packets.length) {
+      setSnackbar({ severity: 'warning', message: t('trackInspectorCopyNoData') });
+      return;
+    }
+
+    try {
+      if (selectedPacket) {
+        await copyText(
+          [
+            `Device: ${getDeviceName(selectedPacket)}`,
+            `Time: ${selectedPacket.fixTime}`,
+            `Coordinates: ${selectedPacket.latitude}, ${selectedPacket.longitude}`,
+            `Address: ${getPacketAddress(selectedPacket)}`,
+            `Speed: ${selectedPacket.speed ?? '—'}`,
+            `Fuel: ${selectedPacket.diagnostics.fuel ?? '—'}`,
+            `Power: ${selectedPacket.diagnostics.power ?? '—'}`,
+            `Ignition: ${selectedPacket.diagnostics.ignition ?? '—'}`,
+          ].join('\n'),
+        );
+      } else {
+        const firstPacket = packets[0];
+        const lastPacket = packets[packets.length - 1];
+        const distance = packets.reduce(
+          (sum, packet) => sum + (Number(packet.diagnostics.deltaDistance) || 0),
+          0,
+        );
+        await copyText(
+          [
+            `Device: ${getDeviceName(firstPacket)}`,
+            `Period: ${reportRange?.from || '—'} - ${reportRange?.to || '—'}`,
+            `Packets: ${packets.length}`,
+            `Distance: ${Math.round(distance)} m`,
+            `Start: ${firstPacket.fixTime}`,
+            `End: ${lastPacket.fixTime}`,
+          ].join('\n'),
+        );
+      }
+      setSnackbar({ severity: 'success', message: t('trackInspectorCopySuccess') });
+    } catch {
+      setSnackbar({ severity: 'error', message: t('trackInspectorCopyError') });
+    }
+  }, [copyText, getDeviceName, getPacketAddress, packets, reportRange, selectedPacket, t]);
 
   const renderDiagnosticSummary = useCallback(
     (packet) => {
@@ -1470,11 +1677,13 @@ const TrackInspectorPage = () => {
               dataKey="index"
               tick={{ fontSize: 11, fill: '#94a3b8' }}
               stroke="rgba(148, 163, 184, 0.3)"
+              minTickGap={32}
             />
             <YAxis
               tick={{ fontSize: 11, fill: '#94a3b8' }}
               stroke="rgba(148, 163, 184, 0.3)"
               width={42}
+              tickCount={4}
             />
             <Tooltip
               contentStyle={{
@@ -1503,27 +1712,42 @@ const TrackInspectorPage = () => {
       );
     }
 
+    const charts = {
+      speed: renderChart(
+        t('trackInspectorSpeedChart'),
+        <Line key="speed" type="monotone" dataKey="speed" dot={false} stroke="#38bdf8" />,
+      ),
+      fuel: renderChart(
+        t('trackInspectorFuelChart'),
+        <Line key="fuel" type="monotone" dataKey="fuel" dot={false} stroke="#22c55e" />,
+      ),
+      power: renderChart(
+        t('trackInspectorPowerChart'),
+        <>
+          <Line type="monotone" dataKey="power" dot={false} stroke="#f97316" />
+          <Line type="monotone" dataKey="battery" dot={false} stroke="#a78bfa" />
+        </>,
+      ),
+      ignition: renderChart(
+        t('trackInspectorIgnitionChart'),
+        <Line key="ignition" type="stepAfter" dataKey="ignition" dot={false} stroke="#f43f5e" />,
+      ),
+    };
+
     return (
       <div className={classes.charts}>
-        {renderChart(
-          t('trackInspectorSpeedChart'),
-          <Line key="speed" type="monotone" dataKey="speed" dot={false} stroke="#38bdf8" />,
-        )}
-        {renderChart(
-          t('trackInspectorFuelChart'),
-          <Line key="fuel" type="monotone" dataKey="fuel" dot={false} stroke="#22c55e" />,
-        )}
-        {renderChart(
-          t('trackInspectorPowerChart'),
-          <>
-            <Line type="monotone" dataKey="power" dot={false} stroke="#f97316" />
-            <Line type="monotone" dataKey="battery" dot={false} stroke="#a78bfa" />
-          </>,
-        )}
-        {renderChart(
-          t('trackInspectorIgnitionChart'),
-          <Line key="ignition" type="stepAfter" dataKey="ignition" dot={false} stroke="#f43f5e" />,
-        )}
+        <Tabs
+          className={classes.chartTabs}
+          value={activeChartTab}
+          onChange={(event, value) => setActiveChartTab(value)}
+        >
+          {chartTabs.map((tab) => (
+            <Tab key={tab} value={tab} label={t(`trackInspectorChartTab${tab}`)} />
+          ))}
+        </Tabs>
+        <div className={cx(classes.chartGrid, activeChartTab === 'all' && classes.chartGridAll)}>
+          {activeChartTab === 'all' ? Object.values(charts) : charts[activeChartTab]}
+        </div>
       </div>
     );
   };
@@ -1549,25 +1773,7 @@ const TrackInspectorPage = () => {
               >
                 <DownloadIcon fontSize="small" />
               </IconButton>
-              <IconButton
-                size="small"
-                disabled={!selectedPacket}
-                onClick={() =>
-                  selectedPacket &&
-                  copyText(
-                    JSON.stringify(
-                      {
-                        diagnostics: selectedPacket.diagnostics,
-                        attributes: selectedPacket.attributes,
-                        rawPosition: selectedPacket.rawPosition,
-                      },
-                      null,
-                      2,
-                    ),
-                  )
-                }
-                title={t('trackInspectorCopyJson')}
-              >
+              <IconButton size="small" onClick={copySummary} title={t('trackInspectorCopySummary')}>
                 <ContentCopyIcon fontSize="small" />
               </IconButton>
             </div>
@@ -1651,6 +1857,15 @@ const TrackInspectorPage = () => {
             {renderPacketDetails()}
           </Paper>
         </Box>
+        <Snackbar
+          open={Boolean(snackbar)}
+          autoHideDuration={3000}
+          onClose={() => setSnackbar(null)}
+        >
+          <Alert severity={snackbar?.severity || 'info'} onClose={() => setSnackbar(null)}>
+            {snackbar?.message}
+          </Alert>
+        </Snackbar>
       </div>
     </PageLayout>
   );
