@@ -3,14 +3,21 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   IconButton,
   Paper,
   Slider,
+  Tab,
+  Tabs,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DownloadIcon from '@mui/icons-material/Download';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -75,6 +82,7 @@ const diagnosticFilters = [
 ];
 
 const replaySpeeds = [1, 5, 10, 25, 50];
+const mobileTabs = ['map', 'packets', 'details', 'charts'];
 
 const firstNumber = (attributes, keys) => {
   const key = keys.find((item) => Number.isFinite(Number(attributes[item])));
@@ -259,6 +267,11 @@ const useStyles = makeStyles()((theme) => ({
   chartsPanel: {
     gridColumn: '1 / 2',
   },
+  mobileHidden: {
+    [theme.breakpoints.down('lg')]: {
+      display: 'none',
+    },
+  },
   placeholder: {
     height: '100%',
     display: 'flex',
@@ -361,6 +374,28 @@ const useStyles = makeStyles()((theme) => ({
   speedGroup: {
     flexShrink: 0,
   },
+  mobileTabs: {
+    display: 'none',
+    [theme.breakpoints.down('lg')]: {
+      display: 'block',
+      borderBottom: `1px solid ${theme.palette.divider}`,
+    },
+  },
+  chipGroup: {
+    display: 'flex',
+    gap: theme.spacing(0.5),
+    flexWrap: 'wrap',
+  },
+  detailsHeaderRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: theme.spacing(1),
+  },
+  detailsActions: {
+    display: 'flex',
+    gap: theme.spacing(0.5),
+  },
   details: {
     height: '100%',
     display: 'flex',
@@ -391,6 +426,8 @@ const useStyles = makeStyles()((theme) => ({
 const TrackInspectorPage = () => {
   const reportClasses = useReportStyles().classes;
   const { classes, cx } = useStyles();
+  const theme = useTheme();
+  const desktop = useMediaQuery(theme.breakpoints.up('lg'));
   const t = useTranslation();
   const positionAttributes = usePositionAttributes(t);
   const listRef = useRef(null);
@@ -401,6 +438,7 @@ const TrackInspectorPage = () => {
   const [diagnosticFilter, setDiagnosticFilter] = useState('all');
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(1);
+  const [activeMobileTab, setActiveMobileTab] = useState('map');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -562,6 +600,60 @@ const TrackInspectorPage = () => {
     [packets, selectPacket],
   );
 
+  const copyText = useCallback((value) => {
+    navigator.clipboard?.writeText(value);
+  }, []);
+
+  const exportCsv = useCallback(() => {
+    const escapeValue = (value) => {
+      const stringValue = value == null ? '' : String(value);
+      return `"${stringValue.replaceAll('"', '""')}"`;
+    };
+    const rows = filteredPackets.map((packet) => [
+      packet.index + 1,
+      packet.fixTime,
+      packet.serverTime,
+      packet.valid,
+      packet.speed,
+      packet.course,
+      `${packet.latitude}, ${packet.longitude}`,
+      packet.address,
+      packet.diagnostics.ignition,
+      packet.diagnostics.fuel,
+      packet.diagnostics.power,
+      packet.diagnostics.battery,
+      packet.diagnostics.odometer,
+      packet.protocol,
+      renderDiagnosticSummary(packet),
+      JSON.stringify(packet.attributes),
+    ]);
+    const header = [
+      '#',
+      columnLabels.fixTime,
+      columnLabels.serverTime,
+      columnLabels.valid,
+      columnLabels.speed,
+      columnLabels.course,
+      columnLabels.coordinates,
+      columnLabels.address,
+      columnLabels.ignition,
+      columnLabels.fuel,
+      positionAttributes.power.name,
+      positionAttributes.battery.name,
+      columnLabels.odometer,
+      columnLabels.protocol,
+      columnLabels.diagnostics,
+      columnLabels.attributes,
+    ];
+    const csv = [header, ...rows].map((row) => row.map(escapeValue).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'track-inspector.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [columnLabels, filteredPackets, positionAttributes]);
+
   const renderTableState = () => {
     if (loading) {
       return (
@@ -603,6 +695,20 @@ const TrackInspectorPage = () => {
   const renderAttributeValue = (packet, keys) => {
     const key = findAttribute(packet, keys);
     return key ? <PositionValue position={packet.rawPosition} attribute={key} /> : '';
+  };
+
+  const renderBooleanChip = (value, trueLabel, falseLabel) => {
+    if (value == null) {
+      return '';
+    }
+    return (
+      <Chip
+        size="small"
+        color={value ? 'success' : 'default'}
+        label={value ? trueLabel : falseLabel}
+        variant={value ? 'filled' : 'outlined'}
+      />
+    );
   };
 
   const renderPowerBattery = (packet) => {
@@ -649,7 +755,9 @@ const TrackInspectorPage = () => {
         return packet.index + 1;
       case 'fixTime':
       case 'serverTime':
+        return renderPositionValue(packet, columnId);
       case 'valid':
+        return renderBooleanChip(packet.valid, t('positionValid'), t('trackInspectorInvalidGps'));
       case 'speed':
       case 'course':
       case 'address':
@@ -664,7 +772,11 @@ const TrackInspectorPage = () => {
           </>
         );
       case 'ignition':
-        return renderAttributeValue(packet, ['ignition']);
+        return renderBooleanChip(
+          packet.diagnostics.ignition,
+          positionAttributes.ignition.name,
+          t('sharedNo'),
+        );
       case 'fuel':
         return renderAttributeValue(packet, ['fuel', 'fuel1', 'fuel2']);
       case 'powerBattery':
@@ -674,10 +786,34 @@ const TrackInspectorPage = () => {
       case 'attributes':
         return Object.keys(packet.attributes).length;
       case 'diagnostics':
-        return renderDiagnosticSummary(packet);
+        return renderDiagnosticBadges(packet);
       default:
         return '';
     }
+  };
+
+  const renderDiagnosticBadges = (packet) => {
+    const diagnostics = packet.diagnostics;
+    const badges = [];
+    if (!diagnostics.validGPS) {
+      badges.push(<Chip key="invalid" size="small" color="error" label={t('trackInspectorInvalidGps')} />);
+    }
+    if (diagnostics.possibleDrain) {
+      badges.push(<Chip key="drain" size="small" color="error" label={t('trackInspectorPossibleDrain')} />);
+    }
+    if (diagnostics.possibleRefuel) {
+      badges.push(<Chip key="refuel" size="small" color="success" label={t('trackInspectorPossibleRefuel')} />);
+    }
+    if (diagnostics.powerLoss) {
+      badges.push(<Chip key="power" size="small" color="warning" label={t('trackInspectorPowerLoss')} />);
+    }
+    if (diagnostics.ignitionChange) {
+      badges.push(<Chip key="ignition" size="small" label={t('trackInspectorIgnitionChange')} />);
+    }
+    if (!badges.length) {
+      return <Chip size="small" variant="outlined" label={t('trackInspectorNoIssues')} />;
+    }
+    return <div className={classes.chipGroup}>{badges}</div>;
   };
 
   const PacketRow = ({ index, style, packets, selectedId, selectPacket }) => {
@@ -760,12 +896,44 @@ const TrackInspectorPage = () => {
     return (
       <div className={classes.details}>
         <div className={classes.detailsHeader}>
-          <Typography variant="subtitle2">
-            #{selectedPacket.index + 1} / {selectedPacket.id}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {selectedPacket.fixTime}
-          </Typography>
+          <div className={classes.detailsHeaderRow}>
+            <div>
+              <Typography variant="subtitle2">
+                #{selectedPacket.index + 1} / {selectedPacket.id}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {selectedPacket.fixTime}
+              </Typography>
+            </div>
+            <div className={classes.detailsActions}>
+              <IconButton
+                size="small"
+                title={t('trackInspectorCopyCoordinates')}
+                onClick={() => copyText(`${selectedPacket.latitude}, ${selectedPacket.longitude}`)}
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                title={t('trackInspectorCopyJson')}
+                onClick={() =>
+                  copyText(
+                    JSON.stringify(
+                      {
+                        diagnostics: selectedPacket.diagnostics,
+                        attributes: selectedPacket.attributes,
+                        rawPosition: selectedPacket.rawPosition,
+                      },
+                      null,
+                      2,
+                    ),
+                  )
+                }
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+            </div>
+          </div>
         </div>
         <pre className={classes.json}>
           {JSON.stringify(
@@ -946,6 +1114,14 @@ const TrackInspectorPage = () => {
                   </ToggleButton>
                 ))}
               </ToggleButtonGroup>
+              <IconButton
+                size="small"
+                disabled={!filteredPackets.length}
+                onClick={exportCsv}
+                title={t('trackInspectorExportCsv')}
+              >
+                <DownloadIcon fontSize="small" />
+              </IconButton>
             </div>
             <div className={reportClasses.filterItem}>
               <ToggleButtonGroup
@@ -966,17 +1142,55 @@ const TrackInspectorPage = () => {
             </div>
           </ReportFilter>
         </div>
+        <Tabs
+          className={classes.mobileTabs}
+          value={activeMobileTab}
+          onChange={(event, value) => setActiveMobileTab(value)}
+          variant="fullWidth"
+        >
+          {mobileTabs.map((tab) => (
+            <Tab key={tab} value={tab} label={t(`trackInspectorTab${tab[0].toUpperCase()}${tab.slice(1)}`)} />
+          ))}
+        </Tabs>
         <Box className={classes.content}>
-          <Paper className={cx(classes.panel, classes.mapPanel)} variant="outlined">
+          <Paper
+            className={cx(
+              classes.panel,
+              classes.mapPanel,
+              !desktop && activeMobileTab !== 'map' && classes.mobileHidden,
+            )}
+            variant="outlined"
+          >
             {renderMap()}
           </Paper>
-          <Paper className={cx(classes.panel, classes.tablePanel)} variant="outlined">
+          <Paper
+            className={cx(
+              classes.panel,
+              classes.tablePanel,
+              !desktop && activeMobileTab !== 'packets' && classes.mobileHidden,
+            )}
+            variant="outlined"
+          >
             {renderPacketTable()}
           </Paper>
-          <Paper className={cx(classes.panel, classes.chartsPanel)} variant="outlined">
+          <Paper
+            className={cx(
+              classes.panel,
+              classes.chartsPanel,
+              !desktop && activeMobileTab !== 'charts' && classes.mobileHidden,
+            )}
+            variant="outlined"
+          >
             {renderCharts()}
           </Paper>
-          <Paper className={cx(classes.panel, classes.detailsPanel)} variant="outlined">
+          <Paper
+            className={cx(
+              classes.panel,
+              classes.detailsPanel,
+              !desktop && activeMobileTab !== 'details' && classes.mobileHidden,
+            )}
+            variant="outlined"
+          >
             {renderPacketDetails()}
           </Paper>
         </Box>
