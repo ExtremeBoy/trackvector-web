@@ -47,7 +47,6 @@ import fetchOrThrow from '../common/util/fetchOrThrow';
 import MapView from '../map/core/MapView';
 import MapRoutePath from '../map/MapRoutePath';
 import MapRoutePoints from '../map/MapRoutePoints';
-import MapPositions from '../map/MapPositions';
 import MapCamera from '../map/MapCamera';
 import MapScale from '../map/MapScale';
 import ReportFilter from './components/ReportFilter';
@@ -101,6 +100,9 @@ const formatShortAddress = (address) => {
   if (!address) {
     return null;
   }
+  if (address === '—' || /show address|показать адрес|sharedShowAddress/i.test(address)) {
+    return null;
+  }
   const parts = address
     .split(',')
     .map((part) => part.trim())
@@ -110,10 +112,12 @@ const formatShortAddress = (address) => {
     return null;
   }
   const street = parts[streetIndex];
-  const house = parts
-    .slice(0, streetIndex)
-    .reverse()
-    .find((part) => /\d/.test(part));
+  const house =
+    parts
+      .slice(0, streetIndex)
+      .reverse()
+      .find((part) => /\d/.test(part)) ||
+    parts.slice(streetIndex + 1).find((part) => /\d/.test(part));
   return house ? `${street}, ${house}` : street;
 };
 
@@ -121,6 +125,42 @@ const fetchShortAddress = async (latitude, longitude) => {
   const query = new URLSearchParams({ latitude, longitude });
   const response = await fetchOrThrow(`/api/server/geocode?${query.toString()}`);
   return formatShortAddress(await response.text());
+};
+
+const copyToClipboard = async (value) => {
+  let clipboardError;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch (error) {
+      clipboardError = error;
+    }
+  }
+
+  const textArea = document.createElement('textarea');
+  textArea.value = value;
+  textArea.setAttribute('readonly', '');
+  textArea.style.position = 'fixed';
+  textArea.style.left = '-9999px';
+  textArea.style.top = '0';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('document.execCommand("copy") returned false');
+    }
+  } catch (fallbackError) {
+    console.warn('Track Inspector summary copy failed', {
+      clipboardError,
+      fallbackError,
+    });
+    throw fallbackError;
+  } finally {
+    document.body.removeChild(textArea);
+  }
 };
 
 const firstNumber = (attributes, keys) => {
@@ -835,6 +875,24 @@ const TrackInspectorPage = () => {
     [packets, diagnosticFilter],
   );
 
+  const mapPositions = useMemo(() => packets.map((packet) => packet.rawPosition), [packets]);
+
+  const eventPacketIds = useMemo(
+    () =>
+      new Set(
+        packets
+          .filter(
+            (packet) =>
+              hasAnomaly(packet) ||
+              packet.diagnostics.ignitionChange ||
+              packet.diagnostics.possibleDrain ||
+              packet.diagnostics.possibleRefuel,
+          )
+          .map((packet) => packet.id),
+      ),
+    [packets],
+  );
+
   const chartData = useMemo(
     () =>
       packets.map((packet) => ({
@@ -1035,12 +1093,7 @@ const TrackInspectorPage = () => {
     [packets, selectPacket],
   );
 
-  const copyText = useCallback(async (value) => {
-    if (!navigator.clipboard?.writeText) {
-      throw new Error('Clipboard API is not available');
-    }
-    await navigator.clipboard.writeText(value);
-  }, []);
+  const copyText = useCallback((value) => copyToClipboard(value), []);
 
   const getDeviceName = useCallback(
     (packet) => devices[packet?.deviceId]?.name || packet?.deviceId || '',
@@ -1066,13 +1119,18 @@ const TrackInspectorPage = () => {
         await copyText(
           [
             `Device: ${getDeviceName(selectedPacket)}`,
-            `Time: ${selectedPacket.fixTime}`,
+            `Packet: #${selectedPacket.index + 1}`,
+            `Fix time: ${selectedPacket.fixTime}`,
+            `Server time: ${selectedPacket.serverTime}`,
             `Coordinates: ${selectedPacket.latitude}, ${selectedPacket.longitude}`,
             `Address: ${getPacketAddress(selectedPacket)}`,
             `Speed: ${selectedPacket.speed ?? '—'}`,
+            `Course: ${selectedPacket.course ?? '—'}`,
             `Fuel: ${selectedPacket.diagnostics.fuel ?? '—'}`,
             `Power: ${selectedPacket.diagnostics.power ?? '—'}`,
+            `Battery: ${selectedPacket.diagnostics.battery ?? '—'}`,
             `Ignition: ${selectedPacket.diagnostics.ignition ?? '—'}`,
+            `Valid: ${selectedPacket.valid ?? '—'}`,
           ].join('\n'),
         );
       } else {
@@ -1090,11 +1148,19 @@ const TrackInspectorPage = () => {
             `Distance: ${Math.round(distance)} m`,
             `Start: ${firstPacket.fixTime}`,
             `End: ${lastPacket.fixTime}`,
+            `Fuel start: ${firstPacket.diagnostics.fuel ?? '—'}`,
+            `Fuel end: ${lastPacket.diagnostics.fuel ?? '—'}`,
+            `Fuel delta: ${
+              firstPacket.diagnostics.fuel != null && lastPacket.diagnostics.fuel != null
+                ? lastPacket.diagnostics.fuel - firstPacket.diagnostics.fuel
+                : '—'
+            }`,
           ].join('\n'),
         );
       }
       setSnackbar({ severity: 'success', message: t('trackInspectorCopySuccess') });
-    } catch {
+    } catch (error) {
+      console.warn('Track Inspector summary copy failed', error);
       setSnackbar({ severity: 'error', message: t('trackInspectorCopyError') });
     }
   }, [copyText, getDeviceName, getPacketAddress, packets, reportRange, selectedPacket, t]);
@@ -1607,8 +1673,6 @@ const TrackInspectorPage = () => {
       );
     }
 
-    const positions = packets.map((packet) => packet.rawPosition);
-
     return (
       <>
         <Button
@@ -1635,22 +1699,30 @@ const TrackInspectorPage = () => {
           </span>
         </div>
         <MapView>
-          {[...new Set(positions.map((position) => position.deviceId))].map((deviceId) => {
-            const devicePositions = positions.filter((position) => position.deviceId === deviceId);
+          {[...new Set(mapPositions.map((position) => position.deviceId))].map((deviceId) => {
+            const devicePositions = mapPositions.filter(
+              (position) => position.deviceId === deviceId,
+            );
             return (
               <Fragment key={deviceId}>
-                <MapRoutePath positions={devicePositions} />
-                <MapRoutePoints positions={devicePositions} onClick={onMapPointClick} />
+                <MapRoutePath positions={devicePositions} color="#22c55e" />
+                <MapRoutePoints
+                  positions={devicePositions}
+                  onClick={onMapPointClick}
+                  color="#22c55e"
+                  selectedId={selectedPacket?.id}
+                  eventIds={eventPacketIds}
+                  selectedColor="#38bdf8"
+                  eventColor="#f97316"
+                />
               </Fragment>
             );
           })}
-          {selectedPacket && (
-            <MapPositions positions={[selectedPacket.rawPosition]} titleField="fixTime" />
-          )}
           {cameraTarget.type === 'track' ? (
-            <MapCamera key={`track-${cameraTarget.version}`} positions={positions} />
+            <MapCamera key={`track-${cameraTarget.version}`} positions={mapPositions} />
           ) : (
-            selectedPacket && (
+            selectedPacket &&
+            cameraTarget.id === selectedPacket.id && (
               <MapCamera
                 key={`packet-${cameraTarget.id}-${cameraTarget.version}`}
                 latitude={selectedPacket.latitude}

@@ -7,7 +7,16 @@ import { SpeedLegendControl } from './legend/MapSpeedLegend';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { useAttributePreference } from '../common/util/preferences';
 
-const MapRoutePoints = ({ positions, onClick, showSpeedControl }) => {
+const MapRoutePoints = ({
+  positions,
+  onClick,
+  showSpeedControl,
+  color,
+  selectedId,
+  eventIds,
+  selectedColor = '#38bdf8',
+  eventColor = '#f97316',
+}) => {
   const id = useId();
   const theme = useTheme();
   const t = useTranslation();
@@ -35,21 +44,36 @@ const MapRoutePoints = ({ positions, onClick, showSpeedControl }) => {
         features: [],
       },
     });
-    map.addLayer({
-      id,
-      type: 'symbol',
-      source: id,
-      paint: {
-        'text-color': ['get', 'color'],
-      },
-      layout: {
-        'text-font': findFonts(map),
-        'text-size': 12,
-        'text-field': '▲',
-        'text-allow-overlap': true,
-        'text-rotate': ['get', 'rotation'],
-      },
-    });
+    if (color) {
+      map.addLayer({
+        id,
+        type: 'circle',
+        source: id,
+        paint: {
+          'circle-color': ['get', 'color'],
+          'circle-radius': ['get', 'radius'],
+          'circle-stroke-color': '#0f1720',
+          'circle-stroke-width': ['get', 'stroke'],
+          'circle-opacity': 0.95,
+        },
+      });
+    } else {
+      map.addLayer({
+        id,
+        type: 'symbol',
+        source: id,
+        paint: {
+          'text-color': ['get', 'color'],
+        },
+        layout: {
+          'text-font': findFonts(map),
+          'text-size': 12,
+          'text-field': '▲',
+          'text-allow-overlap': true,
+          'text-rotate': ['get', 'rotation'],
+        },
+      });
+    }
 
     map.on('mouseenter', id, onMouseEnter);
     map.on('mouseleave', id, onMouseLeave);
@@ -67,7 +91,7 @@ const MapRoutePoints = ({ positions, onClick, showSpeedControl }) => {
         map.removeSource(id);
       }
     };
-  }, [onMarkerClick]);
+  }, [onMarkerClick, color]);
 
   useEffect(() => {
     const maxSpeed = positions.map((p) => p.speed).reduce((a, b) => Math.max(a, b), -Infinity);
@@ -90,12 +114,35 @@ const MapRoutePoints = ({ positions, onClick, showSpeedControl }) => {
           index,
           id: position.id,
           rotation: position.course,
-          color: getSpeedColor(position.speed, minSpeed, maxSpeed),
+          color:
+            position.id === selectedId
+              ? selectedColor
+              : eventIds?.has(position.id)
+                ? eventColor
+                : color || getSpeedColor(position.speed, minSpeed, maxSpeed),
+          radius: position.id === selectedId ? 7 : eventIds?.has(position.id) ? 5 : 3.5,
+          stroke: position.id === selectedId ? 2 : 1,
         },
       })),
     });
-    return () => map.removeControl(control);
-  }, [onMarkerClick, positions, showSpeedControl]);
+    return () => {
+      if (showSpeedControl) {
+        map.removeControl(control);
+      }
+    };
+  }, [
+    onMarkerClick,
+    positions,
+    showSpeedControl,
+    color,
+    selectedId,
+    eventIds,
+    selectedColor,
+    eventColor,
+    speedUnit,
+    t,
+    theme.direction,
+  ]);
 
   return null;
 };

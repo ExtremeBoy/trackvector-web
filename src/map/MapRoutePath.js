@@ -5,7 +5,7 @@ import { map } from './core/MapView';
 import getSpeedColor from '../common/util/colors';
 import { useAttributePreference } from '../common/util/preferences';
 
-const MapRoutePath = ({ positions }) => {
+const MapRoutePath = ({ positions, color }) => {
   const id = useId();
 
   const theme = useTheme();
@@ -78,7 +78,7 @@ const MapRoutePath = ({ positions }) => {
           ],
         },
         properties: {
-          color: reportColor || getSpeedColor(positions[i + 1].speed, minSpeed, maxSpeed),
+          color: color || reportColor || getSpeedColor(positions[i + 1].speed, minSpeed, maxSpeed),
           width: mapLineWidth,
           opacity: mapLineOpacity,
         },
@@ -88,7 +88,7 @@ const MapRoutePath = ({ positions }) => {
       type: 'FeatureCollection',
       features,
     });
-  }, [theme, positions, reportColor, mapLineWidth, mapLineOpacity]);
+  }, [theme, positions, color, reportColor, mapLineWidth, mapLineOpacity]);
 
   return null;
 };
