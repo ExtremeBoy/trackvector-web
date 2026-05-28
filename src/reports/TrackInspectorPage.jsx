@@ -4,17 +4,24 @@ import {
   Box,
   Button,
   CircularProgress,
+  IconButton,
   Paper,
+  Slider,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
+import PauseIcon from '@mui/icons-material/Pause';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import SkipNextIcon from '@mui/icons-material/SkipNext';
+import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
 import { List } from 'react-window';
 import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -66,6 +73,8 @@ const diagnosticFilters = [
   'ignitionChanges',
   'powerIssues',
 ];
+
+const replaySpeeds = [1, 5, 10, 25, 50];
 
 const firstNumber = (attributes, keys) => {
   const key = keys.find((item) => Number.isFinite(Number(attributes[item])));
@@ -338,6 +347,20 @@ const useStyles = makeStyles()((theme) => ({
     flexGrow: 1,
     minHeight: 0,
   },
+  replayControls: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+    flex: '2 1 420px',
+    minWidth: 0,
+  },
+  replaySlider: {
+    minWidth: 140,
+    flexGrow: 1,
+  },
+  speedGroup: {
+    flexShrink: 0,
+  },
   details: {
     height: '100%',
     display: 'flex',
@@ -376,6 +399,8 @@ const TrackInspectorPage = () => {
   const [selectedPacket, setSelectedPacket] = useState(null);
   const [cameraTarget, setCameraTarget] = useState({ type: 'track', version: 0 });
   const [diagnosticFilter, setDiagnosticFilter] = useState('all');
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replaySpeed, setReplaySpeed] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -435,6 +460,30 @@ const TrackInspectorPage = () => {
     }
   }, [filteredPackets, selectedPacket]);
 
+  useEffect(() => {
+    if (!replayPlaying || !packets.length) {
+      return undefined;
+    }
+    const interval = setInterval(() => {
+      setSelectedPacket((current) => {
+        const currentIndex = current ? packets.findIndex((packet) => packet.id === current.id) : -1;
+        const nextIndex = currentIndex + 1;
+        if (nextIndex >= packets.length) {
+          setReplayPlaying(false);
+          return current;
+        }
+        const nextPacket = packets[nextIndex];
+        setCameraTarget((previous) => ({
+          type: 'packet',
+          id: nextPacket.id,
+          version: previous.version + 1,
+        }));
+        return nextPacket;
+      });
+    }, Math.max(1000 / replaySpeed, 50));
+    return () => clearInterval(interval);
+  }, [packets, replayPlaying, replaySpeed]);
+
   const onShow = useCallback(async ({ deviceIds, from, to }) => {
     const query = new URLSearchParams({ from, to });
     deviceIds.forEach((deviceId) => query.append('deviceId', deviceId));
@@ -442,6 +491,7 @@ const TrackInspectorPage = () => {
     setLoading(true);
     setError(null);
     setLoaded(false);
+    setReplayPlaying(false);
     try {
       const response = await fetchOrThrow(`/api/positions?${query.toString()}`, {
         headers: { Accept: 'application/json' },
@@ -455,6 +505,7 @@ const TrackInspectorPage = () => {
     } catch (errorValue) {
       setPackets([]);
       setSelectedPacket(null);
+      setReplayPlaying(false);
       setError(errorValue.message || String(errorValue));
     } finally {
       setLoading(false);
@@ -485,6 +536,20 @@ const TrackInspectorPage = () => {
   const fitToTrack = useCallback(() => {
     setCameraTarget((previous) => ({ type: 'track', version: previous.version + 1 }));
   }, []);
+
+  const stepReplay = useCallback(
+    (direction) => {
+      if (!packets.length) {
+        return;
+      }
+      const currentIndex = selectedPacket
+        ? packets.findIndex((packet) => packet.id === selectedPacket.id)
+        : 0;
+      const nextIndex = Math.min(Math.max(currentIndex + direction, 0), packets.length - 1);
+      selectPacket(packets[nextIndex]);
+    },
+    [packets, selectPacket, selectedPacket],
+  );
 
   const selectChartPacket = useCallback(
     (event) => {
@@ -781,6 +846,9 @@ const TrackInspectorPage = () => {
             <XAxis dataKey="index" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} width={42} />
             <Tooltip labelFormatter={(value) => chartData[value]?.fixTime || value} />
+            {selectedPacket && (
+              <ReferenceLine x={selectedPacket.index} stroke="#d32f2f" strokeDasharray="3 3" />
+            )}
             {children}
           </LineChart>
         </ResponsiveContainer>
@@ -827,6 +895,58 @@ const TrackInspectorPage = () => {
       <div className={reportClasses.container}>
         <div className={reportClasses.header}>
           <ReportFilter deviceType="single" loading={loading} onShow={onShow}>
+            <div className={classes.replayControls}>
+              <IconButton
+                size="small"
+                disabled={!packets.length}
+                onClick={() => stepReplay(-1)}
+                title={t('trackInspectorStepBack')}
+              >
+                <SkipPreviousIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                disabled={!packets.length}
+                onClick={() => setReplayPlaying((value) => !value)}
+                title={t(replayPlaying ? 'trackInspectorPause' : 'trackInspectorPlay')}
+              >
+                {replayPlaying ? (
+                  <PauseIcon fontSize="small" />
+                ) : (
+                  <PlayArrowIcon fontSize="small" />
+                )}
+              </IconButton>
+              <IconButton
+                size="small"
+                disabled={!packets.length}
+                onClick={() => stepReplay(1)}
+                title={t('trackInspectorStepForward')}
+              >
+                <SkipNextIcon fontSize="small" />
+              </IconButton>
+              <Slider
+                className={classes.replaySlider}
+                size="small"
+                disabled={!packets.length}
+                min={0}
+                max={Math.max(packets.length - 1, 0)}
+                value={selectedPacket?.index || 0}
+                onChange={(event, value) => selectPacket(packets[value])}
+              />
+              <ToggleButtonGroup
+                className={classes.speedGroup}
+                value={replaySpeed}
+                exclusive
+                size="small"
+                onChange={(event, value) => value && setReplaySpeed(value)}
+              >
+                {replaySpeeds.map((speed) => (
+                  <ToggleButton key={speed} value={speed}>
+                    {speed}x
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            </div>
             <div className={reportClasses.filterItem}>
               <ToggleButtonGroup
                 value={diagnosticFilter}
