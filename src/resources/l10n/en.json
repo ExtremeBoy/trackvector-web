@@ -591,6 +591,8 @@
     "trackInspectorTablePlaceholder": "Packet table will appear here",
     "trackInspectorDetailsPlaceholder": "Packet details will appear here",
     "trackInspectorPacketsLoaded": "{count} packets loaded",
+    "trackInspectorCoordinates": "Coordinates",
+    "trackInspectorPowerBattery": "Power/Battery",
     "reportEvents": "Events",
     "reportTrips": "Trips",
     "reportStops": "Stops",

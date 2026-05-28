@@ -591,6 +591,8 @@
     "trackInspectorTablePlaceholder": "Здесь будет таблица пакетов",
     "trackInspectorDetailsPlaceholder": "Здесь будут детали пакета",
     "trackInspectorPacketsLoaded": "Загружено пакетов: {count}",
+    "trackInspectorCoordinates": "Координаты",
+    "trackInspectorPowerBattery": "Питание/батарея",
     "reportEvents": "События",
     "reportTrips": "Поездки",
     "reportStops": "Остановки",

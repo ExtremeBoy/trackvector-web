@@ -1,8 +1,22 @@
 import { useCallback, useState } from 'react';
-import { Alert, Box, CircularProgress, Paper, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  CircularProgress,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import PageLayout from '../common/components/PageLayout';
+import PositionValue from '../common/components/PositionValue';
 import { useTranslation } from '../common/components/LocalizationProvider';
+import usePositionAttributes from '../common/attributes/usePositionAttributes';
 import fetchOrThrow from '../common/util/fetchOrThrow';
 import ReportFilter from './components/ReportFilter';
 import ReportsMenu from './components/ReportsMenu';
@@ -25,6 +39,10 @@ const normalizeTrackPacket = (position, index) => ({
   attributes: position.attributes || {},
   rawPosition: position,
 });
+
+const findAttribute = (packet, keys) => keys.find((key) => packet.attributes[key] != null);
+
+const hasProperty = (position, key) => Object.prototype.hasOwnProperty.call(position, key);
 
 const useStyles = makeStyles()((theme) => ({
   content: {
@@ -67,6 +85,29 @@ const useStyles = makeStyles()((theme) => ({
     color: theme.palette.text.secondary,
     backgroundColor: theme.palette.action.hover,
   },
+  tableContainer: {
+    height: '100%',
+  },
+  details: {
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
+  },
+  detailsHeader: {
+    padding: theme.spacing(2),
+    borderBottom: `1px solid ${theme.palette.divider}`,
+  },
+  json: {
+    margin: 0,
+    padding: theme.spacing(2),
+    overflow: 'auto',
+    flexGrow: 1,
+    fontSize: theme.typography.caption.fontSize,
+    fontFamily: theme.typography.fontFamilyMonospaced,
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  },
   state: {
     display: 'flex',
     alignItems: 'center',
@@ -78,8 +119,10 @@ const TrackInspectorPage = () => {
   const reportClasses = useReportStyles().classes;
   const { classes, cx } = useStyles();
   const t = useTranslation();
+  const positionAttributes = usePositionAttributes(t);
 
   const [packets, setPackets] = useState([]);
+  const [selectedPacket, setSelectedPacket] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -96,10 +139,13 @@ const TrackInspectorPage = () => {
         headers: { Accept: 'application/json' },
       });
       const data = await response.json();
-      setPackets(data.map(normalizeTrackPacket));
+      const normalizedPackets = data.map(normalizeTrackPacket);
+      setPackets(normalizedPackets);
+      setSelectedPacket(normalizedPackets[0] || null);
       setLoaded(true);
     } catch (errorValue) {
       setPackets([]);
+      setSelectedPacket(null);
       setError(errorValue.message || String(errorValue));
     } finally {
       setLoading(false);
@@ -131,6 +177,124 @@ const TrackInspectorPage = () => {
     return <Typography variant="body2">{t('trackInspectorTablePlaceholder')}</Typography>;
   };
 
+  const renderPositionValue = (packet, key) => (
+    <PositionValue
+      position={packet.rawPosition}
+      property={hasProperty(packet.rawPosition, key) ? key : null}
+      attribute={hasProperty(packet.rawPosition, key) ? null : key}
+    />
+  );
+
+  const renderAttributeValue = (packet, keys) => {
+    const key = findAttribute(packet, keys);
+    return key ? <PositionValue position={packet.rawPosition} attribute={key} /> : '';
+  };
+
+  const renderPowerBattery = (packet) => {
+    const keys = ['power', 'battery', 'batteryLevel'];
+    return keys
+      .filter((key) => packet.attributes[key] != null)
+      .map((key) => (
+        <div key={key}>
+          {positionAttributes[key]?.name || key}: <PositionValue position={packet.rawPosition} attribute={key} />
+        </div>
+      ));
+  };
+
+  const renderPacketTable = () => {
+    if (loading || error || !packets.length) {
+      return <div className={classes.placeholder}>{renderTableState()}</div>;
+    }
+
+    return (
+      <TableContainer className={classes.tableContainer}>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>#</TableCell>
+              <TableCell>{positionAttributes.fixTime.name}</TableCell>
+              <TableCell>{positionAttributes.serverTime.name}</TableCell>
+              <TableCell>{positionAttributes.valid.name}</TableCell>
+              <TableCell>{positionAttributes.speed.name}</TableCell>
+              <TableCell>{positionAttributes.course.name}</TableCell>
+              <TableCell>{t('trackInspectorCoordinates')}</TableCell>
+              <TableCell>{positionAttributes.address.name}</TableCell>
+              <TableCell>{positionAttributes.ignition.name}</TableCell>
+              <TableCell>{positionAttributes.fuel.name}</TableCell>
+              <TableCell>{t('trackInspectorPowerBattery')}</TableCell>
+              <TableCell>{positionAttributes.odometer.name}</TableCell>
+              <TableCell>{positionAttributes.protocol.name}</TableCell>
+              <TableCell>{t('sharedAttributes')}</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {packets.map((packet) => (
+              <TableRow
+                key={packet.id}
+                hover
+                selected={selectedPacket?.id === packet.id}
+                onClick={() => setSelectedPacket(packet)}
+                sx={{ cursor: 'pointer' }}
+              >
+                <TableCell>{packet.index + 1}</TableCell>
+                <TableCell>{renderPositionValue(packet, 'fixTime')}</TableCell>
+                <TableCell>{renderPositionValue(packet, 'serverTime')}</TableCell>
+                <TableCell>{renderPositionValue(packet, 'valid')}</TableCell>
+                <TableCell>{renderPositionValue(packet, 'speed')}</TableCell>
+                <TableCell>{renderPositionValue(packet, 'course')}</TableCell>
+                <TableCell>
+                  {renderPositionValue(packet, 'latitude')}
+                  <br />
+                  {renderPositionValue(packet, 'longitude')}
+                </TableCell>
+                <TableCell>{renderPositionValue(packet, 'address')}</TableCell>
+                <TableCell>{renderAttributeValue(packet, ['ignition'])}</TableCell>
+                <TableCell>{renderAttributeValue(packet, ['fuel', 'fuel1', 'fuel2'])}</TableCell>
+                <TableCell>{renderPowerBattery(packet)}</TableCell>
+                <TableCell>{renderAttributeValue(packet, ['odometer', 'totalDistance'])}</TableCell>
+                <TableCell>{renderPositionValue(packet, 'protocol')}</TableCell>
+                <TableCell>{Object.keys(packet.attributes).length}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    );
+  };
+
+  const renderPacketDetails = () => {
+    if (!selectedPacket) {
+      return (
+        <div className={classes.placeholder}>
+          <Typography variant="body2">{t('trackInspectorDetailsPlaceholder')}</Typography>
+        </div>
+      );
+    }
+
+    return (
+      <div className={classes.details}>
+        <div className={classes.detailsHeader}>
+          <Typography variant="subtitle2">
+            #{selectedPacket.index + 1} / {selectedPacket.id}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {selectedPacket.fixTime}
+          </Typography>
+        </div>
+        <pre className={classes.json}>
+          {JSON.stringify(
+            {
+              attributes: selectedPacket.attributes,
+              rawPosition: selectedPacket.rawPosition,
+            },
+            null,
+            2,
+          )}
+        </pre>
+      </div>
+    );
+  };
+
   return (
     <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportTrackInspector']}>
       <div className={reportClasses.container}>
@@ -146,12 +310,10 @@ const TrackInspectorPage = () => {
             </div>
           </Paper>
           <Paper className={cx(classes.panel, classes.tablePanel)} variant="outlined">
-            <div className={classes.placeholder}>{renderTableState()}</div>
+            {renderPacketTable()}
           </Paper>
           <Paper className={cx(classes.panel, classes.detailsPanel)} variant="outlined">
-            <div className={classes.placeholder}>
-              <Typography variant="body2">{t('trackInspectorDetailsPlaceholder')}</Typography>
-            </div>
+            {renderPacketDetails()}
           </Paper>
         </Box>
       </div>
