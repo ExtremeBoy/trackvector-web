@@ -11,6 +11,15 @@ import {
 } from '@mui/material';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import { List } from 'react-window';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { makeStyles } from 'tss-react/mui';
 import PageLayout from '../common/components/PageLayout';
 import PositionValue from '../common/components/PositionValue';
@@ -209,13 +218,13 @@ const useStyles = makeStyles()((theme) => ({
   content: {
     display: 'grid',
     gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)',
-    gridTemplateRows: 'minmax(260px, 38vh) minmax(280px, 1fr)',
+    gridTemplateRows: 'minmax(260px, 34vh) minmax(260px, 1fr) minmax(280px, 34vh)',
     gap: theme.spacing(2),
     padding: theme.spacing(0, 2, 2),
     minHeight: 0,
     [theme.breakpoints.down('lg')]: {
       gridTemplateColumns: '1fr',
-      gridTemplateRows: '260px minmax(280px, 1fr) minmax(220px, auto)',
+      gridTemplateRows: '260px minmax(280px, 1fr) minmax(280px, auto) minmax(220px, auto)',
     },
   },
   panel: {
@@ -232,11 +241,14 @@ const useStyles = makeStyles()((theme) => ({
   },
   detailsPanel: {
     gridColumn: '2 / 3',
-    gridRow: '1 / 3',
+    gridRow: '1 / 4',
     [theme.breakpoints.down('lg')]: {
       gridColumn: '1 / 2',
       gridRow: 'auto',
     },
+  },
+  chartsPanel: {
+    gridColumn: '1 / 2',
   },
   placeholder: {
     height: '100%',
@@ -304,6 +316,28 @@ const useStyles = makeStyles()((theme) => ({
     top: theme.spacing(1),
     left: theme.spacing(1),
   },
+  charts: {
+    height: '100%',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: theme.spacing(1),
+    padding: theme.spacing(1),
+    [theme.breakpoints.down('md')]: {
+      gridTemplateColumns: '1fr',
+    },
+  },
+  chart: {
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  chartTitle: {
+    padding: theme.spacing(0, 1),
+  },
+  chartBody: {
+    flexGrow: 1,
+    minHeight: 0,
+  },
   details: {
     height: '100%',
     display: 'flex',
@@ -349,6 +383,21 @@ const TrackInspectorPage = () => {
   const filteredPackets = useMemo(
     () => packets.filter((packet) => matchesDiagnosticFilter(packet, diagnosticFilter)),
     [packets, diagnosticFilter],
+  );
+
+  const chartData = useMemo(
+    () =>
+      packets.map((packet) => ({
+        packetId: packet.id,
+        index: packet.index,
+        fixTime: packet.fixTime,
+        speed: packet.speed,
+        fuel: packet.diagnostics.fuel,
+        power: packet.diagnostics.power,
+        battery: packet.diagnostics.battery,
+        ignition: packet.diagnostics.ignition == null ? null : Number(packet.diagnostics.ignition),
+      })),
+    [packets],
   );
 
   const columnLabels = useMemo(
@@ -436,6 +485,17 @@ const TrackInspectorPage = () => {
   const fitToTrack = useCallback(() => {
     setCameraTarget((previous) => ({ type: 'track', version: previous.version + 1 }));
   }, []);
+
+  const selectChartPacket = useCallback(
+    (event) => {
+      const packetId = event?.activePayload?.[0]?.payload?.packetId;
+      const packet = packets.find((item) => item.id === packetId);
+      if (packet) {
+        selectPacket(packet);
+      }
+    },
+    [packets, selectPacket],
+  );
 
   const renderTableState = () => {
     if (loading) {
@@ -709,6 +769,59 @@ const TrackInspectorPage = () => {
     );
   };
 
+  const renderChart = (title, children) => (
+    <div className={classes.chart}>
+      <Typography className={classes.chartTitle} variant="subtitle2">
+        {title}
+      </Typography>
+      <div className={classes.chartBody}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} onClick={selectChartPacket}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="index" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} width={42} />
+            <Tooltip labelFormatter={(value) => chartData[value]?.fixTime || value} />
+            {children}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+
+  const renderCharts = () => {
+    if (!packets.length) {
+      return (
+        <div className={classes.placeholder}>
+          <Typography variant="body2">{t('trackInspectorChartsPlaceholder')}</Typography>
+        </div>
+      );
+    }
+
+    return (
+      <div className={classes.charts}>
+        {renderChart(
+          t('trackInspectorSpeedChart'),
+          <Line key="speed" type="monotone" dataKey="speed" dot={false} stroke="#1976d2" />,
+        )}
+        {renderChart(
+          t('trackInspectorFuelChart'),
+          <Line key="fuel" type="monotone" dataKey="fuel" dot={false} stroke="#2e7d32" />,
+        )}
+        {renderChart(
+          t('trackInspectorPowerChart'),
+          <>
+            <Line type="monotone" dataKey="power" dot={false} stroke="#ed6c02" />
+            <Line type="monotone" dataKey="battery" dot={false} stroke="#9c27b0" />
+          </>,
+        )}
+        {renderChart(
+          t('trackInspectorIgnitionChart'),
+          <Line key="ignition" type="stepAfter" dataKey="ignition" dot={false} stroke="#d32f2f" />,
+        )}
+      </div>
+    );
+  };
+
   return (
     <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportTrackInspector']}>
       <div className={reportClasses.container}>
@@ -739,6 +852,9 @@ const TrackInspectorPage = () => {
           </Paper>
           <Paper className={cx(classes.panel, classes.tablePanel)} variant="outlined">
             {renderPacketTable()}
+          </Paper>
+          <Paper className={cx(classes.panel, classes.chartsPanel)} variant="outlined">
+            {renderCharts()}
           </Paper>
           <Paper className={cx(classes.panel, classes.detailsPanel)} variant="outlined">
             {renderPacketDetails()}
