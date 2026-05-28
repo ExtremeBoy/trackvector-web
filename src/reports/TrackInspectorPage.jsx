@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 import {
   Alert,
   Box,
+  Button,
   CircularProgress,
   Paper,
   Table,
@@ -12,12 +13,19 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
+import MyLocationIcon from '@mui/icons-material/MyLocation';
 import { makeStyles } from 'tss-react/mui';
 import PageLayout from '../common/components/PageLayout';
 import PositionValue from '../common/components/PositionValue';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import usePositionAttributes from '../common/attributes/usePositionAttributes';
 import fetchOrThrow from '../common/util/fetchOrThrow';
+import MapView from '../map/core/MapView';
+import MapRoutePath from '../map/MapRoutePath';
+import MapRoutePoints from '../map/MapRoutePoints';
+import MapPositions from '../map/MapPositions';
+import MapCamera from '../map/MapCamera';
+import MapScale from '../map/MapScale';
 import ReportFilter from './components/ReportFilter';
 import ReportsMenu from './components/ReportsMenu';
 import useReportStyles from './common/useReportStyles';
@@ -64,6 +72,7 @@ const useStyles = makeStyles()((theme) => ({
   },
   mapPanel: {
     gridColumn: '1 / 2',
+    position: 'relative',
   },
   tablePanel: {
     gridColumn: '1 / 2',
@@ -87,6 +96,12 @@ const useStyles = makeStyles()((theme) => ({
   },
   tableContainer: {
     height: '100%',
+  },
+  mapAction: {
+    position: 'absolute',
+    zIndex: 1,
+    top: theme.spacing(1),
+    left: theme.spacing(1),
   },
   details: {
     height: '100%',
@@ -123,6 +138,7 @@ const TrackInspectorPage = () => {
 
   const [packets, setPackets] = useState([]);
   const [selectedPacket, setSelectedPacket] = useState(null);
+  const [cameraTarget, setCameraTarget] = useState({ type: 'track', version: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -142,6 +158,7 @@ const TrackInspectorPage = () => {
       const normalizedPackets = data.map(normalizeTrackPacket);
       setPackets(normalizedPackets);
       setSelectedPacket(normalizedPackets[0] || null);
+      setCameraTarget((previous) => ({ type: 'track', version: previous.version + 1 }));
       setLoaded(true);
     } catch (errorValue) {
       setPackets([]);
@@ -150,6 +167,31 @@ const TrackInspectorPage = () => {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const selectPacket = useCallback((packet, focusMap = true) => {
+    setSelectedPacket(packet);
+    if (packet && focusMap) {
+      setCameraTarget((previous) => ({
+        type: 'packet',
+        id: packet.id,
+        version: previous.version + 1,
+      }));
+    }
+  }, []);
+
+  const onMapPointClick = useCallback(
+    (positionId) => {
+      const packet = packets.find((item) => item.id === positionId);
+      if (packet) {
+        selectPacket(packet, false);
+      }
+    },
+    [packets, selectPacket],
+  );
+
+  const fitToTrack = useCallback(() => {
+    setCameraTarget((previous) => ({ type: 'track', version: previous.version + 1 }));
   }, []);
 
   const renderTableState = () => {
@@ -233,7 +275,7 @@ const TrackInspectorPage = () => {
                 key={packet.id}
                 hover
                 selected={selectedPacket?.id === packet.id}
-                onClick={() => setSelectedPacket(packet)}
+                onClick={() => selectPacket(packet)}
                 sx={{ cursor: 'pointer' }}
               >
                 <TableCell>{packet.index + 1}</TableCell>
@@ -295,6 +337,58 @@ const TrackInspectorPage = () => {
     );
   };
 
+  const renderMap = () => {
+    if (!packets.length) {
+      return (
+        <div className={classes.placeholder}>
+          <Typography variant="body2">{t('trackInspectorMapPlaceholder')}</Typography>
+        </div>
+      );
+    }
+
+    const positions = packets.map((packet) => packet.rawPosition);
+
+    return (
+      <>
+        <Button
+          className={classes.mapAction}
+          size="small"
+          variant="contained"
+          startIcon={<MyLocationIcon />}
+          onClick={fitToTrack}
+        >
+          {t('trackInspectorFitTrack')}
+        </Button>
+        <MapView>
+          {[...new Set(positions.map((position) => position.deviceId))].map((deviceId) => {
+            const devicePositions = positions.filter((position) => position.deviceId === deviceId);
+            return (
+              <Fragment key={deviceId}>
+                <MapRoutePath positions={devicePositions} />
+                <MapRoutePoints positions={devicePositions} onClick={onMapPointClick} />
+              </Fragment>
+            );
+          })}
+          {selectedPacket && (
+            <MapPositions positions={[selectedPacket.rawPosition]} titleField="fixTime" />
+          )}
+          {cameraTarget.type === 'track' ? (
+            <MapCamera key={`track-${cameraTarget.version}`} positions={positions} />
+          ) : (
+            selectedPacket && (
+              <MapCamera
+                key={`packet-${cameraTarget.id}-${cameraTarget.version}`}
+                latitude={selectedPacket.latitude}
+                longitude={selectedPacket.longitude}
+              />
+            )
+          )}
+          <MapScale />
+        </MapView>
+      </>
+    );
+  };
+
   return (
     <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportTrackInspector']}>
       <div className={reportClasses.container}>
@@ -303,11 +397,7 @@ const TrackInspectorPage = () => {
         </div>
         <Box className={classes.content}>
           <Paper className={cx(classes.panel, classes.mapPanel)} variant="outlined">
-            <div className={classes.placeholder}>
-              <Typography variant="body2">
-                {packets.length ? t('trackInspectorMapLoaded') : t('trackInspectorMapPlaceholder')}
-              </Typography>
-            </div>
+            {renderMap()}
           </Paper>
           <Paper className={cx(classes.panel, classes.tablePanel)} variant="outlined">
             {renderPacketTable()}

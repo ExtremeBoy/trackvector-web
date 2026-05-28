@@ -588,6 +588,7 @@
     "reportTrackInspector": "Инспектор трека",
     "trackInspectorMapPlaceholder": "Здесь будет карта маршрута",
     "trackInspectorMapLoaded": "Трек загружен. Отрисовка карты будет добавлена дальше.",
+    "trackInspectorFitTrack": "Показать трек",
     "trackInspectorTablePlaceholder": "Здесь будет таблица пакетов",
     "trackInspectorDetailsPlaceholder": "Здесь будут детали пакета",
     "trackInspectorPacketsLoaded": "Загружено пакетов: {count}",

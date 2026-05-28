@@ -588,6 +588,7 @@
     "reportTrackInspector": "Track Inspector",
     "trackInspectorMapPlaceholder": "Map preview will appear here",
     "trackInspectorMapLoaded": "Track loaded. Map rendering will be added next.",
+    "trackInspectorFitTrack": "Fit to track",
     "trackInspectorTablePlaceholder": "Packet table will appear here",
     "trackInspectorDetailsPlaceholder": "Packet details will appear here",
     "trackInspectorPacketsLoaded": "{count} packets loaded",
