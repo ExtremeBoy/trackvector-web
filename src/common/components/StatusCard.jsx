@@ -18,6 +18,8 @@ import {
   TableFooter,
   Link,
   Tooltip,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import CloseIcon from '@mui/icons-material/Close';
@@ -30,6 +32,7 @@ import PendingIcon from '@mui/icons-material/Pending';
 import { useTranslation } from './LocalizationProvider';
 import RemoveDialog from './RemoveDialog';
 import PositionValue from './PositionValue';
+import TelemetryPanel from './TelemetryPanel';
 import { useDeviceReadonly, useRestriction } from '../util/permissions';
 import usePositionAttributes from '../attributes/usePositionAttributes';
 import { devicesActions } from '../../store';
@@ -63,6 +66,14 @@ const useStyles = makeStyles()((theme, { desktopPadding }) => ({
     paddingBottom: theme.spacing(1),
     maxHeight: theme.dimensions.cardContentMaxHeight,
     overflow: 'auto',
+  },
+  tabs: {
+    minHeight: theme.spacing(4),
+    '& .MuiTab-root': {
+      minHeight: theme.spacing(4),
+      paddingTop: theme.spacing(0.5),
+      paddingBottom: theme.spacing(0.5),
+    },
   },
   icon: {
     width: '25px',
@@ -145,6 +156,7 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
   const [anchorEl, setAnchorEl] = useState(null);
 
   const [removing, setRemoving] = useState(false);
+  const [tab, setTab] = useState('status');
 
   const handleRemove = useCatch(async (removed) => {
     if (removed) {
@@ -203,8 +215,17 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
                   </IconButton>
                 </div>
               )}
-              {position && (
-                <CardContent className={classes.content}>
+              <Tabs
+                value={tab}
+                onChange={(event, value) => setTab(value)}
+                variant="fullWidth"
+                className={classes.tabs}
+              >
+                <Tab value="status" label={t('stateTitle') || 'Status'} />
+                <Tab value="telemetry" label="Telemetry" />
+              </Tabs>
+              <CardContent className={classes.content}>
+                {tab === 'status' && position && (
                   <Table size="small" className={classes.table}>
                     <TableBody>
                       {positionItems
@@ -239,8 +260,14 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
                       </TableRow>
                     </TableFooter>
                   </Table>
-                </CardContent>
-              )}
+                )}
+                {tab === 'status' && !position && (
+                  <Typography variant="body2" color="textSecondary">
+                    {t('positionLast') || 'No position'}
+                  </Typography>
+                )}
+                {tab === 'telemetry' && <TelemetryPanel deviceId={deviceId} />}
+              </CardContent>
               <CardActions className={classes.actions} disableSpacing>
                 <Tooltip title={t('sharedExtra')}>
                   <IconButton
