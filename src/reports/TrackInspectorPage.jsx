@@ -1,19 +1,14 @@
-import { Fragment, useCallback, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   CircularProgress,
   Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Typography,
 } from '@mui/material';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
+import { List } from 'react-window';
 import { makeStyles } from 'tss-react/mui';
 import PageLayout from '../common/components/PageLayout';
 import PositionValue from '../common/components/PositionValue';
@@ -51,6 +46,25 @@ const normalizeTrackPacket = (position, index) => ({
 const findAttribute = (packet, keys) => keys.find((key) => packet.attributes[key] != null);
 
 const hasProperty = (position, key) => Object.prototype.hasOwnProperty.call(position, key);
+
+const tableColumns = [
+  { id: 'index', width: 64 },
+  { id: 'fixTime', width: 170 },
+  { id: 'serverTime', width: 170 },
+  { id: 'valid', width: 90 },
+  { id: 'speed', width: 110 },
+  { id: 'course', width: 90 },
+  { id: 'coordinates', width: 150 },
+  { id: 'address', width: 260 },
+  { id: 'ignition', width: 110 },
+  { id: 'fuel', width: 110 },
+  { id: 'powerBattery', width: 170 },
+  { id: 'odometer', width: 130 },
+  { id: 'protocol', width: 120 },
+  { id: 'attributes', width: 100 },
+];
+
+const gridTemplateColumns = tableColumns.map((column) => `${column.width}px`).join(' ');
 
 const useStyles = makeStyles()((theme) => ({
   content: {
@@ -96,6 +110,54 @@ const useStyles = makeStyles()((theme) => ({
   },
   tableContainer: {
     height: '100%',
+    overflowX: 'auto',
+  },
+  virtualTable: {
+    minWidth: tableColumns.reduce((sum, column) => sum + column.width, 0),
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  virtualHeader: {
+    display: 'grid',
+    gridTemplateColumns,
+    position: 'sticky',
+    top: 0,
+    zIndex: 1,
+    backgroundColor: theme.palette.background.paper,
+    borderBottom: `1px solid ${theme.palette.divider}`,
+  },
+  virtualList: {
+    flexGrow: 1,
+    minHeight: 0,
+  },
+  virtualRow: {
+    display: 'grid',
+    gridTemplateColumns,
+    alignItems: 'center',
+    borderBottom: `1px solid ${theme.palette.divider}`,
+    cursor: 'pointer',
+    '&:hover': {
+      backgroundColor: theme.palette.action.hover,
+    },
+  },
+  virtualRowSelected: {
+    backgroundColor: theme.palette.action.selected,
+    '&:hover': {
+      backgroundColor: theme.palette.action.selected,
+    },
+  },
+  virtualCell: {
+    minWidth: 0,
+    padding: theme.spacing(0.5, 1),
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontSize: theme.typography.body2.fontSize,
+  },
+  virtualCellMultiline: {
+    whiteSpace: 'normal',
+    lineHeight: 1.25,
   },
   mapAction: {
     position: 'absolute',
@@ -135,6 +197,7 @@ const TrackInspectorPage = () => {
   const { classes, cx } = useStyles();
   const t = useTranslation();
   const positionAttributes = usePositionAttributes(t);
+  const listRef = useRef(null);
 
   const [packets, setPackets] = useState([]);
   const [selectedPacket, setSelectedPacket] = useState(null);
@@ -142,6 +205,36 @@ const TrackInspectorPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
+
+  const columnLabels = useMemo(
+    () => ({
+      index: '#',
+      fixTime: positionAttributes.fixTime.name,
+      serverTime: positionAttributes.serverTime.name,
+      valid: positionAttributes.valid.name,
+      speed: positionAttributes.speed.name,
+      course: positionAttributes.course.name,
+      coordinates: t('trackInspectorCoordinates'),
+      address: positionAttributes.address.name,
+      ignition: positionAttributes.ignition.name,
+      fuel: positionAttributes.fuel.name,
+      powerBattery: t('trackInspectorPowerBattery'),
+      odometer: positionAttributes.odometer.name,
+      protocol: positionAttributes.protocol.name,
+      attributes: t('sharedAttributes'),
+    }),
+    [positionAttributes, t],
+  );
+
+  useEffect(() => {
+    if (selectedPacket) {
+      listRef.current?.scrollToRow({
+        index: selectedPacket.index,
+        align: 'smart',
+        behavior: 'auto',
+      });
+    }
+  }, [selectedPacket]);
 
   const onShow = useCallback(async ({ deviceIds, from, to }) => {
     const query = new URLSearchParams({ from, to });
@@ -243,64 +336,98 @@ const TrackInspectorPage = () => {
       ));
   };
 
+  const renderPacketCell = (packet, columnId) => {
+    switch (columnId) {
+      case 'index':
+        return packet.index + 1;
+      case 'fixTime':
+      case 'serverTime':
+      case 'valid':
+      case 'speed':
+      case 'course':
+      case 'address':
+      case 'protocol':
+        return renderPositionValue(packet, columnId);
+      case 'coordinates':
+        return (
+          <>
+            {renderPositionValue(packet, 'latitude')}
+            <br />
+            {renderPositionValue(packet, 'longitude')}
+          </>
+        );
+      case 'ignition':
+        return renderAttributeValue(packet, ['ignition']);
+      case 'fuel':
+        return renderAttributeValue(packet, ['fuel', 'fuel1', 'fuel2']);
+      case 'powerBattery':
+        return renderPowerBattery(packet);
+      case 'odometer':
+        return renderAttributeValue(packet, ['odometer', 'totalDistance']);
+      case 'attributes':
+        return Object.keys(packet.attributes).length;
+      default:
+        return '';
+    }
+  };
+
+  const PacketRow = ({ index, style, packets, selectedId, selectPacket }) => {
+    const packet = packets[index];
+    return (
+      <div
+        className={cx(classes.virtualRow, selectedId === packet.id && classes.virtualRowSelected)}
+        style={style}
+        role="row"
+        onClick={() => selectPacket(packet)}
+      >
+        {tableColumns.map((column) => (
+          <div
+            key={column.id}
+            className={cx(
+              classes.virtualCell,
+              (column.id === 'coordinates' || column.id === 'powerBattery') &&
+                classes.virtualCellMultiline,
+            )}
+            role="cell"
+            title={column.id === 'address' ? packet.address || '' : undefined}
+          >
+            {renderPacketCell(packet, column.id)}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const renderPacketTable = () => {
     if (loading || error || !packets.length) {
       return <div className={classes.placeholder}>{renderTableState()}</div>;
     }
 
     return (
-      <TableContainer className={classes.tableContainer}>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>#</TableCell>
-              <TableCell>{positionAttributes.fixTime.name}</TableCell>
-              <TableCell>{positionAttributes.serverTime.name}</TableCell>
-              <TableCell>{positionAttributes.valid.name}</TableCell>
-              <TableCell>{positionAttributes.speed.name}</TableCell>
-              <TableCell>{positionAttributes.course.name}</TableCell>
-              <TableCell>{t('trackInspectorCoordinates')}</TableCell>
-              <TableCell>{positionAttributes.address.name}</TableCell>
-              <TableCell>{positionAttributes.ignition.name}</TableCell>
-              <TableCell>{positionAttributes.fuel.name}</TableCell>
-              <TableCell>{t('trackInspectorPowerBattery')}</TableCell>
-              <TableCell>{positionAttributes.odometer.name}</TableCell>
-              <TableCell>{positionAttributes.protocol.name}</TableCell>
-              <TableCell>{t('sharedAttributes')}</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {packets.map((packet) => (
-              <TableRow
-                key={packet.id}
-                hover
-                selected={selectedPacket?.id === packet.id}
-                onClick={() => selectPacket(packet)}
-                sx={{ cursor: 'pointer' }}
-              >
-                <TableCell>{packet.index + 1}</TableCell>
-                <TableCell>{renderPositionValue(packet, 'fixTime')}</TableCell>
-                <TableCell>{renderPositionValue(packet, 'serverTime')}</TableCell>
-                <TableCell>{renderPositionValue(packet, 'valid')}</TableCell>
-                <TableCell>{renderPositionValue(packet, 'speed')}</TableCell>
-                <TableCell>{renderPositionValue(packet, 'course')}</TableCell>
-                <TableCell>
-                  {renderPositionValue(packet, 'latitude')}
-                  <br />
-                  {renderPositionValue(packet, 'longitude')}
-                </TableCell>
-                <TableCell>{renderPositionValue(packet, 'address')}</TableCell>
-                <TableCell>{renderAttributeValue(packet, ['ignition'])}</TableCell>
-                <TableCell>{renderAttributeValue(packet, ['fuel', 'fuel1', 'fuel2'])}</TableCell>
-                <TableCell>{renderPowerBattery(packet)}</TableCell>
-                <TableCell>{renderAttributeValue(packet, ['odometer', 'totalDistance'])}</TableCell>
-                <TableCell>{renderPositionValue(packet, 'protocol')}</TableCell>
-                <TableCell>{Object.keys(packet.attributes).length}</TableCell>
-              </TableRow>
+      <div className={classes.tableContainer}>
+        <div className={classes.virtualTable} role="grid">
+          <div className={classes.virtualHeader} role="row">
+            {tableColumns.map((column) => (
+              <div className={classes.virtualCell} key={column.id} role="columnheader">
+                <strong>{columnLabels[column.id]}</strong>
+              </div>
             ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+          </div>
+          <List
+            className={classes.virtualList}
+            listRef={listRef}
+            rowComponent={PacketRow}
+            rowCount={packets.length}
+            rowHeight={52}
+            rowProps={{
+              packets,
+              selectedId: selectedPacket?.id,
+              selectPacket,
+            }}
+            overscanCount={10}
+          />
+        </div>
+      </div>
     );
   };
 
