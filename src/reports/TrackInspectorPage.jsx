@@ -502,23 +502,28 @@ const TrackInspectorPage = () => {
     if (!replayPlaying || !packets.length) {
       return undefined;
     }
-    const interval = setInterval(() => {
-      setSelectedPacket((current) => {
-        const currentIndex = current ? packets.findIndex((packet) => packet.id === current.id) : -1;
-        const nextIndex = currentIndex + 1;
-        if (nextIndex >= packets.length) {
-          setReplayPlaying(false);
-          return current;
-        }
-        const nextPacket = packets[nextIndex];
-        setCameraTarget((previous) => ({
-          type: 'packet',
-          id: nextPacket.id,
-          version: previous.version + 1,
-        }));
-        return nextPacket;
-      });
-    }, Math.max(1000 / replaySpeed, 50));
+    const interval = setInterval(
+      () => {
+        setSelectedPacket((current) => {
+          const currentIndex = current
+            ? packets.findIndex((packet) => packet.id === current.id)
+            : -1;
+          const nextIndex = currentIndex + 1;
+          if (nextIndex >= packets.length) {
+            setReplayPlaying(false);
+            return current;
+          }
+          const nextPacket = packets[nextIndex];
+          setCameraTarget((previous) => ({
+            type: 'packet',
+            id: nextPacket.id,
+            version: previous.version + 1,
+          }));
+          return nextPacket;
+        });
+      },
+      Math.max(1000 / replaySpeed, 50),
+    );
     return () => clearInterval(interval);
   }, [packets, replayPlaying, replaySpeed]);
 
@@ -604,6 +609,36 @@ const TrackInspectorPage = () => {
     navigator.clipboard?.writeText(value);
   }, []);
 
+  const renderDiagnosticSummary = useCallback(
+    (packet) => {
+      const diagnostics = packet.diagnostics;
+      const items = [];
+      if (!diagnostics.validGPS) {
+        items.push(t('trackInspectorInvalidGps'));
+      }
+      if (diagnostics.gpsJump) {
+        items.push(t('trackInspectorGpsJump'));
+      }
+      if (diagnostics.possibleDrain) {
+        items.push(t('trackInspectorPossibleDrain'));
+      }
+      if (diagnostics.possibleRefuel) {
+        items.push(t('trackInspectorPossibleRefuel'));
+      }
+      if (diagnostics.powerLoss) {
+        items.push(t('trackInspectorPowerLoss'));
+      }
+      if (diagnostics.ignitionChange) {
+        items.push(t('trackInspectorIgnitionChange'));
+      }
+      if (items.length) {
+        return items.join(', ');
+      }
+      return t('trackInspectorNoIssues');
+    },
+    [t],
+  );
+
   const exportCsv = useCallback(() => {
     const escapeValue = (value) => {
       const stringValue = value == null ? '' : String(value);
@@ -652,7 +687,7 @@ const TrackInspectorPage = () => {
     link.download = 'track-inspector.csv';
     link.click();
     URL.revokeObjectURL(url);
-  }, [columnLabels, filteredPackets, positionAttributes]);
+  }, [columnLabels, filteredPackets, positionAttributes, renderDiagnosticSummary]);
 
   const renderTableState = () => {
     if (loading) {
@@ -717,36 +752,10 @@ const TrackInspectorPage = () => {
       .filter((key) => packet.attributes[key] != null)
       .map((key) => (
         <div key={key}>
-          {positionAttributes[key]?.name || key}: <PositionValue position={packet.rawPosition} attribute={key} />
+          {positionAttributes[key]?.name || key}:{' '}
+          <PositionValue position={packet.rawPosition} attribute={key} />
         </div>
       ));
-  };
-
-  const renderDiagnosticSummary = (packet) => {
-    const diagnostics = packet.diagnostics;
-    const items = [];
-    if (!diagnostics.validGPS) {
-      items.push(t('trackInspectorInvalidGps'));
-    }
-    if (diagnostics.gpsJump) {
-      items.push(t('trackInspectorGpsJump'));
-    }
-    if (diagnostics.possibleDrain) {
-      items.push(t('trackInspectorPossibleDrain'));
-    }
-    if (diagnostics.possibleRefuel) {
-      items.push(t('trackInspectorPossibleRefuel'));
-    }
-    if (diagnostics.powerLoss) {
-      items.push(t('trackInspectorPowerLoss'));
-    }
-    if (diagnostics.ignitionChange) {
-      items.push(t('trackInspectorIgnitionChange'));
-    }
-    if (items.length) {
-      return items.join(', ');
-    }
-    return t('trackInspectorNoIssues');
   };
 
   const renderPacketCell = (packet, columnId) => {
@@ -796,16 +805,29 @@ const TrackInspectorPage = () => {
     const diagnostics = packet.diagnostics;
     const badges = [];
     if (!diagnostics.validGPS) {
-      badges.push(<Chip key="invalid" size="small" color="error" label={t('trackInspectorInvalidGps')} />);
+      badges.push(
+        <Chip key="invalid" size="small" color="error" label={t('trackInspectorInvalidGps')} />,
+      );
     }
     if (diagnostics.possibleDrain) {
-      badges.push(<Chip key="drain" size="small" color="error" label={t('trackInspectorPossibleDrain')} />);
+      badges.push(
+        <Chip key="drain" size="small" color="error" label={t('trackInspectorPossibleDrain')} />,
+      );
     }
     if (diagnostics.possibleRefuel) {
-      badges.push(<Chip key="refuel" size="small" color="success" label={t('trackInspectorPossibleRefuel')} />);
+      badges.push(
+        <Chip
+          key="refuel"
+          size="small"
+          color="success"
+          label={t('trackInspectorPossibleRefuel')}
+        />,
+      );
     }
     if (diagnostics.powerLoss) {
-      badges.push(<Chip key="power" size="small" color="warning" label={t('trackInspectorPowerLoss')} />);
+      badges.push(
+        <Chip key="power" size="small" color="warning" label={t('trackInspectorPowerLoss')} />,
+      );
     }
     if (diagnostics.ignitionChange) {
       badges.push(<Chip key="ignition" size="small" label={t('trackInspectorIgnitionChange')} />);
@@ -816,7 +838,7 @@ const TrackInspectorPage = () => {
     return <div className={classes.chipGroup}>{badges}</div>;
   };
 
-  const PacketRow = ({ index, style, packets, selectedId, selectPacket }) => {
+  const renderPacketRow = ({ index, style, packets, selectedId, selectPacket }) => {
     const packet = packets[index];
     return (
       <div
@@ -869,7 +891,7 @@ const TrackInspectorPage = () => {
           <List
             className={classes.virtualList}
             listRef={listRef}
-            rowComponent={PacketRow}
+            rowComponent={renderPacketRow}
             rowCount={filteredPackets.length}
             rowHeight={52}
             rowProps={{
@@ -1149,7 +1171,11 @@ const TrackInspectorPage = () => {
           variant="fullWidth"
         >
           {mobileTabs.map((tab) => (
-            <Tab key={tab} value={tab} label={t(`trackInspectorTab${tab[0].toUpperCase()}${tab.slice(1)}`)} />
+            <Tab
+              key={tab}
+              value={tab}
+              label={t(`trackInspectorTab${tab[0].toUpperCase()}${tab.slice(1)}`)}
+            />
           ))}
         </Tabs>
         <Box className={classes.content}>
