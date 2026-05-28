@@ -5,6 +5,8 @@ import {
   Button,
   CircularProgress,
   Paper,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
@@ -47,6 +49,142 @@ const findAttribute = (packet, keys) => keys.find((key) => packet.attributes[key
 
 const hasProperty = (position, key) => Object.prototype.hasOwnProperty.call(position, key);
 
+const diagnosticFilters = [
+  'all',
+  'anomalies',
+  'fuelEvents',
+  'invalidGps',
+  'ignitionChanges',
+  'powerIssues',
+];
+
+const firstNumber = (attributes, keys) => {
+  const key = keys.find((item) => Number.isFinite(Number(attributes[item])));
+  return key ? Number(attributes[key]) : null;
+};
+
+const firstBoolean = (attributes, keys) => {
+  const key = keys.find((item) => attributes[item] != null);
+  if (!key) {
+    return null;
+  }
+  const value = attributes[key];
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value > 0;
+  }
+  return ['true', '1', 'on', 'yes'].includes(String(value).toLowerCase());
+};
+
+const distanceMeters = (start, end) => {
+  if (
+    !Number.isFinite(start.latitude) ||
+    !Number.isFinite(start.longitude) ||
+    !Number.isFinite(end.latitude) ||
+    !Number.isFinite(end.longitude)
+  ) {
+    return 0;
+  }
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const radius = 6371000;
+  const lat1 = toRadians(start.latitude);
+  const lat2 = toRadians(end.latitude);
+  const deltaLat = toRadians(end.latitude - start.latitude);
+  const deltaLon = toRadians(end.longitude - start.longitude);
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const enrichDiagnostics = (packets) => {
+  const result = [];
+  packets.forEach((packet, index) => {
+    const previous = index > 0 ? result[index - 1] : null;
+    const ignition = firstBoolean(packet.attributes, ['ignition']);
+    const fuel = firstNumber(packet.attributes, ['fuel', 'fuel1', 'fuel2']);
+    const power = firstNumber(packet.attributes, ['power']);
+    const battery = firstNumber(packet.attributes, ['battery', 'batteryLevel']);
+    const odometer = firstNumber(packet.attributes, ['odometer', 'totalDistance']);
+    const validGPS =
+      packet.valid === true &&
+      Number.isFinite(packet.latitude) &&
+      Number.isFinite(packet.longitude) &&
+      Math.abs(packet.latitude) <= 90 &&
+      Math.abs(packet.longitude) <= 180;
+
+    const previousFuel = previous?.diagnostics.fuel;
+    const previousPower = previous?.diagnostics.power;
+    const previousIgnition = previous?.diagnostics.ignition;
+    const previousOdometer = previous?.diagnostics.odometer;
+    const deltaFuel = fuel != null && previousFuel != null ? fuel - previousFuel : null;
+    const deltaTime =
+      previous && packet.fixTime && previous.fixTime
+        ? (new Date(packet.fixTime).getTime() - new Date(previous.fixTime).getTime()) / 1000
+        : null;
+    const gpsDistance = previous ? distanceMeters(previous, packet) : null;
+    const deltaDistance =
+      odometer != null && previousOdometer != null ? odometer - previousOdometer : gpsDistance;
+    const fuelChangeRate =
+      deltaFuel != null && deltaTime > 0 ? (deltaFuel / deltaTime) * 3600 : null;
+    const jumpSpeed = gpsDistance != null && deltaTime > 0 ? (gpsDistance / deltaTime) * 3.6 : 0;
+    const possibleDrain = deltaFuel != null && deltaFuel < -5;
+    const possibleRefuel = deltaFuel != null && deltaFuel > 5;
+    const gpsJump = validGPS && previous?.diagnostics.validGPS && jumpSpeed > 200;
+    const powerLoss = previousPower != null && previousPower > 5 && power != null && power <= 1;
+    const ignitionChange =
+      previousIgnition != null && ignition != null && previousIgnition !== ignition;
+
+    result.push({
+      ...packet,
+      diagnostics: {
+        ignition,
+        fuel,
+        power,
+        battery,
+        odometer,
+        validGPS,
+        deltaFuel,
+        deltaDistance,
+        deltaTime,
+        fuelChangeRate,
+        possibleDrain,
+        possibleRefuel,
+        gpsJump,
+        powerLoss,
+        ignitionChange,
+      },
+    });
+  });
+  return result;
+};
+
+const hasAnomaly = (packet) =>
+  packet.diagnostics.possibleDrain ||
+  packet.diagnostics.possibleRefuel ||
+  packet.diagnostics.gpsJump ||
+  packet.diagnostics.powerLoss ||
+  !packet.diagnostics.validGPS;
+
+const matchesDiagnosticFilter = (packet, filter) => {
+  switch (filter) {
+    case 'anomalies':
+      return hasAnomaly(packet);
+    case 'fuelEvents':
+      return packet.diagnostics.possibleDrain || packet.diagnostics.possibleRefuel;
+    case 'invalidGps':
+      return !packet.diagnostics.validGPS;
+    case 'ignitionChanges':
+      return packet.diagnostics.ignitionChange;
+    case 'powerIssues':
+      return packet.diagnostics.powerLoss;
+    default:
+      return true;
+  }
+};
+
 const tableColumns = [
   { id: 'index', width: 64 },
   { id: 'fixTime', width: 170 },
@@ -62,6 +200,7 @@ const tableColumns = [
   { id: 'odometer', width: 130 },
   { id: 'protocol', width: 120 },
   { id: 'attributes', width: 100 },
+  { id: 'diagnostics', width: 220 },
 ];
 
 const gridTemplateColumns = tableColumns.map((column) => `${column.width}px`).join(' ');
@@ -202,9 +341,15 @@ const TrackInspectorPage = () => {
   const [packets, setPackets] = useState([]);
   const [selectedPacket, setSelectedPacket] = useState(null);
   const [cameraTarget, setCameraTarget] = useState({ type: 'track', version: 0 });
+  const [diagnosticFilter, setDiagnosticFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
+
+  const filteredPackets = useMemo(
+    () => packets.filter((packet) => matchesDiagnosticFilter(packet, diagnosticFilter)),
+    [packets, diagnosticFilter],
+  );
 
   const columnLabels = useMemo(
     () => ({
@@ -222,19 +367,24 @@ const TrackInspectorPage = () => {
       odometer: positionAttributes.odometer.name,
       protocol: positionAttributes.protocol.name,
       attributes: t('sharedAttributes'),
+      diagnostics: t('trackInspectorDiagnostics'),
     }),
     [positionAttributes, t],
   );
 
   useEffect(() => {
     if (selectedPacket) {
+      const visibleIndex = filteredPackets.findIndex((packet) => packet.id === selectedPacket.id);
+      if (visibleIndex < 0) {
+        return;
+      }
       listRef.current?.scrollToRow({
-        index: selectedPacket.index,
+        index: visibleIndex,
         align: 'smart',
         behavior: 'auto',
       });
     }
-  }, [selectedPacket]);
+  }, [filteredPackets, selectedPacket]);
 
   const onShow = useCallback(async ({ deviceIds, from, to }) => {
     const query = new URLSearchParams({ from, to });
@@ -248,7 +398,7 @@ const TrackInspectorPage = () => {
         headers: { Accept: 'application/json' },
       });
       const data = await response.json();
-      const normalizedPackets = data.map(normalizeTrackPacket);
+      const normalizedPackets = enrichDiagnostics(data.map(normalizeTrackPacket));
       setPackets(normalizedPackets);
       setSelectedPacket(normalizedPackets[0] || null);
       setCameraTarget((previous) => ({ type: 'track', version: previous.version + 1 }));
@@ -302,10 +452,15 @@ const TrackInspectorPage = () => {
     if (loaded && !packets.length) {
       return <Typography variant="body2">{t('sharedNoData')}</Typography>;
     }
+    if (loaded && packets.length && !filteredPackets.length) {
+      return <Typography variant="body2">{t('trackInspectorNoFilteredPackets')}</Typography>;
+    }
     if (packets.length) {
       return (
         <Typography variant="body2">
-          {t('trackInspectorPacketsLoaded').replace('{count}', packets.length)}
+          {t('trackInspectorPacketsLoaded')
+            .replace('{count}', filteredPackets.length)
+            .replace('{total}', packets.length)}
         </Typography>
       );
     }
@@ -334,6 +489,33 @@ const TrackInspectorPage = () => {
           {positionAttributes[key]?.name || key}: <PositionValue position={packet.rawPosition} attribute={key} />
         </div>
       ));
+  };
+
+  const renderDiagnosticSummary = (packet) => {
+    const diagnostics = packet.diagnostics;
+    const items = [];
+    if (!diagnostics.validGPS) {
+      items.push(t('trackInspectorInvalidGps'));
+    }
+    if (diagnostics.gpsJump) {
+      items.push(t('trackInspectorGpsJump'));
+    }
+    if (diagnostics.possibleDrain) {
+      items.push(t('trackInspectorPossibleDrain'));
+    }
+    if (diagnostics.possibleRefuel) {
+      items.push(t('trackInspectorPossibleRefuel'));
+    }
+    if (diagnostics.powerLoss) {
+      items.push(t('trackInspectorPowerLoss'));
+    }
+    if (diagnostics.ignitionChange) {
+      items.push(t('trackInspectorIgnitionChange'));
+    }
+    if (items.length) {
+      return items.join(', ');
+    }
+    return t('trackInspectorNoIssues');
   };
 
   const renderPacketCell = (packet, columnId) => {
@@ -366,6 +548,8 @@ const TrackInspectorPage = () => {
         return renderAttributeValue(packet, ['odometer', 'totalDistance']);
       case 'attributes':
         return Object.keys(packet.attributes).length;
+      case 'diagnostics':
+        return renderDiagnosticSummary(packet);
       default:
         return '';
     }
@@ -385,11 +569,19 @@ const TrackInspectorPage = () => {
             key={column.id}
             className={cx(
               classes.virtualCell,
-              (column.id === 'coordinates' || column.id === 'powerBattery') &&
+              (column.id === 'coordinates' ||
+                column.id === 'powerBattery' ||
+                column.id === 'diagnostics') &&
                 classes.virtualCellMultiline,
             )}
             role="cell"
-            title={column.id === 'address' ? packet.address || '' : undefined}
+            title={
+              column.id === 'address'
+                ? packet.address || ''
+                : column.id === 'diagnostics'
+                  ? renderDiagnosticSummary(packet)
+                  : undefined
+            }
           >
             {renderPacketCell(packet, column.id)}
           </div>
@@ -399,7 +591,7 @@ const TrackInspectorPage = () => {
   };
 
   const renderPacketTable = () => {
-    if (loading || error || !packets.length) {
+    if (loading || error || !packets.length || !filteredPackets.length) {
       return <div className={classes.placeholder}>{renderTableState()}</div>;
     }
 
@@ -417,10 +609,10 @@ const TrackInspectorPage = () => {
             className={classes.virtualList}
             listRef={listRef}
             rowComponent={PacketRow}
-            rowCount={packets.length}
+            rowCount={filteredPackets.length}
             rowHeight={52}
             rowProps={{
-              packets,
+              packets: filteredPackets,
               selectedId: selectedPacket?.id,
               selectPacket,
             }}
@@ -453,6 +645,7 @@ const TrackInspectorPage = () => {
         <pre className={classes.json}>
           {JSON.stringify(
             {
+              diagnostics: selectedPacket.diagnostics,
               attributes: selectedPacket.attributes,
               rawPosition: selectedPacket.rawPosition,
             },
@@ -520,7 +713,25 @@ const TrackInspectorPage = () => {
     <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportTrackInspector']}>
       <div className={reportClasses.container}>
         <div className={reportClasses.header}>
-          <ReportFilter deviceType="single" loading={loading} onShow={onShow} />
+          <ReportFilter deviceType="single" loading={loading} onShow={onShow}>
+            <div className={reportClasses.filterItem}>
+              <ToggleButtonGroup
+                value={diagnosticFilter}
+                exclusive
+                size="small"
+                onChange={(event, value) => value && setDiagnosticFilter(value)}
+                fullWidth
+              >
+                {diagnosticFilters.map((filter) => (
+                  <ToggleButton key={filter} value={filter}>
+                    <Typography variant="button" noWrap>
+                      {t(`trackInspectorFilter${filter[0].toUpperCase()}${filter.slice(1)}`)}
+                    </Typography>
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            </div>
+          </ReportFilter>
         </div>
         <Box className={classes.content}>
           <Paper className={cx(classes.panel, classes.mapPanel)} variant="outlined">
