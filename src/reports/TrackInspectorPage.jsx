@@ -88,45 +88,6 @@ const replaySpeeds = [1, 5, 10, 25, 50];
 const mobileTabs = ['map', 'packets', 'details', 'charts'];
 const chartTabs = ['speed', 'fuel', 'power', 'ignition', 'all'];
 
-const roundCoordinate = (value) => Number(value).toFixed(5);
-
-const getAddressCacheKey = (latitude, longitude) =>
-  `${roundCoordinate(latitude)},${roundCoordinate(longitude)}`;
-
-const isPlusCodePart = (part) =>
-  /^[23456789CFGHJMPQRVWX]{4,}\+[23456789CFGHJMPQRVWX]{2,}/i.test(part);
-
-const formatShortAddress = (address) => {
-  if (!address) {
-    return null;
-  }
-  if (address === '—' || /show address|показать адрес|sharedShowAddress/i.test(address)) {
-    return null;
-  }
-  const parts = address
-    .split(',')
-    .map((part) => part.trim())
-    .filter((part) => part && !isPlusCodePart(part));
-  const streetIndex = parts.findIndex((part) => /\p{L}/u.test(part));
-  if (streetIndex < 0) {
-    return null;
-  }
-  const street = parts[streetIndex];
-  const house =
-    parts
-      .slice(0, streetIndex)
-      .reverse()
-      .find((part) => /\d/.test(part)) ||
-    parts.slice(streetIndex + 1).find((part) => /\d/.test(part));
-  return house ? `${street}, ${house}` : street;
-};
-
-const fetchShortAddress = async (latitude, longitude) => {
-  const query = new URLSearchParams({ latitude, longitude });
-  const response = await fetchOrThrow(`/api/server/geocode?${query.toString()}`);
-  return formatShortAddress(await response.text());
-};
-
 const copyToClipboard = async (value) => {
   let clipboardError;
   if (navigator.clipboard?.writeText) {
@@ -309,59 +270,6 @@ const tableColumns = [
 ];
 
 const gridTemplateColumns = tableColumns.map((column) => `${column.width}px`).join(' ');
-
-const TrackAddressValue = ({ packet, addressCache, setAddressCache }) => {
-  const latitude = packet.latitude;
-  const longitude = packet.longitude;
-  const originalAddress = formatShortAddress(packet.address);
-  const cacheKey = getAddressCacheKey(latitude, longitude);
-  const cached = addressCache[cacheKey];
-
-  useEffect(() => {
-    if (originalAddress || cached) {
-      return undefined;
-    }
-
-    let active = true;
-    setAddressCache((previous) => ({
-      ...previous,
-      [cacheKey]: { loading: true },
-    }));
-
-    fetchShortAddress(latitude, longitude)
-      .then((address) => {
-        if (active) {
-          setAddressCache((previous) => ({
-            ...previous,
-            [cacheKey]: address ? { address } : { error: true },
-          }));
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setAddressCache((previous) => ({
-            ...previous,
-            [cacheKey]: { error: true },
-          }));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [cacheKey, cached, latitude, longitude, originalAddress, setAddressCache]);
-
-  if (originalAddress) {
-    return originalAddress;
-  }
-  if (cached?.address) {
-    return cached.address;
-  }
-  if (cached?.loading) {
-    return '…';
-  }
-  return '—';
-};
 
 const useStyles = makeStyles()((theme) => ({
   shell: {
@@ -863,7 +771,6 @@ const TrackInspectorPage = () => {
   const [activeMobileTab, setActiveMobileTab] = useState('map');
   const [detailsTab, setDetailsTab] = useState('details');
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [addressCache, setAddressCache] = useState({});
   const [reportRange, setReportRange] = useState(null);
   const [snackbar, setSnackbar] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -972,47 +879,6 @@ const TrackInspectorPage = () => {
     return () => clearInterval(interval);
   }, [packets, replayPlaying, replaySpeed]);
 
-  useEffect(() => {
-    if (
-      selectedPacket?.latitude == null ||
-      selectedPacket?.longitude == null ||
-      selectedPacket.address
-    ) {
-      return undefined;
-    }
-    const cacheKey = getAddressCacheKey(selectedPacket.latitude, selectedPacket.longitude);
-    if (addressCache[cacheKey]) {
-      return undefined;
-    }
-
-    let active = true;
-    setAddressCache((previous) => ({
-      ...previous,
-      [cacheKey]: { loading: true },
-    }));
-    fetchShortAddress(selectedPacket.latitude, selectedPacket.longitude)
-      .then((address) => {
-        if (active) {
-          setAddressCache((previous) => ({
-            ...previous,
-            [cacheKey]: address ? { address } : { error: true },
-          }));
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setAddressCache((previous) => ({
-            ...previous,
-            [cacheKey]: { error: true },
-          }));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [addressCache, selectedPacket]);
-
   const onShow = useCallback(async ({ deviceIds, from, to }) => {
     const query = new URLSearchParams({ from, to });
     deviceIds.forEach((deviceId) => query.append('deviceId', deviceId));
@@ -1021,7 +887,6 @@ const TrackInspectorPage = () => {
     setError(null);
     setLoaded(false);
     setReplayPlaying(false);
-    setAddressCache({});
     setReportRange({ deviceIds, from, to });
     try {
       const response = await fetchOrThrow(`/api/positions?${query.toString()}`, {
@@ -1100,13 +965,7 @@ const TrackInspectorPage = () => {
     [devices],
   );
 
-  const getPacketAddress = useCallback(
-    (packet) =>
-      formatShortAddress(packet.address) ||
-      addressCache[getAddressCacheKey(packet.latitude, packet.longitude)]?.address ||
-      '—',
-    [addressCache],
-  );
+  const getPacketAddress = useCallback((packet) => packet.address || '—', []);
 
   const copySummary = useCallback(async () => {
     if (!packets.length) {
@@ -1325,16 +1184,9 @@ const TrackInspectorPage = () => {
         return renderBooleanChip(packet.valid, t('positionValid'), t('trackInspectorInvalidGps'));
       case 'speed':
       case 'course':
+      case 'address':
       case 'protocol':
         return renderPositionValue(packet, columnId);
-      case 'address':
-        return (
-          <TrackAddressValue
-            packet={packet}
-            addressCache={addressCache}
-            setAddressCache={setAddressCache}
-          />
-        );
       case 'coordinates':
         return (
           <>
