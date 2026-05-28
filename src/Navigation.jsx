@@ -60,6 +60,7 @@ import { generateLoginToken } from './common/components/NativeInterface';
 import { useLocalization } from './common/components/LocalizationProvider';
 import fetchOrThrow from './common/util/fetchOrThrow';
 import AuditPage from './reports/AuditPage';
+import TrackInspectorPage from './reports/TrackInspectorPage';
 
 const Navigation = () => {
   const dispatch = useDispatch();
@@ -176,6 +177,7 @@ const Navigation = () => {
           <Route path="events" element={<EventReportPage />} />
           <Route path="geofences" element={<GeofenceReportPage />} />
           <Route path="route" element={<PositionsReportPage />} />
+          <Route path="track-inspector" element={<TrackInspectorPage />} />
           <Route path="stops" element={<StopReportPage />} />
           <Route path="summary" element={<SummaryReportPage />} />
           <Route path="trips" element={<TripReportPage />} />
