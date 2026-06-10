@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { Rnd } from 'react-rnd';
+import dayjs from 'dayjs';
 import {
   Card,
   CardContent,
@@ -18,12 +19,12 @@ import {
   TableFooter,
   Link,
   Tooltip,
-  Tabs,
-  Tab,
+  Button,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import CloseIcon from '@mui/icons-material/Close';
 import RouteIcon from '@mui/icons-material/Route';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import SendIcon from '@mui/icons-material/Send';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -32,7 +33,6 @@ import PendingIcon from '@mui/icons-material/Pending';
 import { useTranslation } from './LocalizationProvider';
 import RemoveDialog from './RemoveDialog';
 import PositionValue from './PositionValue';
-import TelemetryPanel from './TelemetryPanel';
 import { useDeviceReadonly, useRestriction } from '../util/permissions';
 import usePositionAttributes from '../attributes/usePositionAttributes';
 import { devicesActions } from '../../store';
@@ -40,10 +40,24 @@ import { useCatch, useCatchCallback } from '../../reactHelper';
 import { useAttributePreference } from '../util/preferences';
 import fetchOrThrow from '../util/fetchOrThrow';
 
+const trackInspectorPath = (deviceId) => {
+  const query = new URLSearchParams({
+    deviceId: String(deviceId),
+    from: dayjs().startOf('day').toISOString(),
+    to: dayjs().endOf('day').toISOString(),
+  });
+  return `/reports/track-inspector?${query.toString()}`;
+};
+
 const useStyles = makeStyles()((theme, { desktopPadding }) => ({
   card: {
     pointerEvents: 'auto',
-    width: theme.dimensions.popupMaxWidth,
+    width: theme.dimensions.popupMaxWidth + 48,
+    border: `1px solid ${theme.enterprise.colors.border}`,
+    borderRadius: theme.enterprise.radius.sm,
+    backgroundColor: theme.enterprise.colors.surface,
+    boxShadow: theme.enterprise.shadows.overlay,
+    backdropFilter: 'blur(10px)',
   },
   media: {
     height: theme.dimensions.popupImageHeight,
@@ -59,7 +73,8 @@ const useStyles = makeStyles()((theme, { desktopPadding }) => ({
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: theme.spacing(1, 1, 0, 2),
+    padding: theme.spacing(1, 1, 0.75, 1.25),
+    borderBottom: `1px solid ${theme.enterprise.colors.borderSubtle}`,
   },
   content: {
     paddingTop: theme.spacing(1),
@@ -67,33 +82,36 @@ const useStyles = makeStyles()((theme, { desktopPadding }) => ({
     maxHeight: theme.dimensions.cardContentMaxHeight,
     overflow: 'auto',
   },
-  tabs: {
-    minHeight: theme.spacing(4),
-    '& .MuiTab-root': {
-      minHeight: theme.spacing(4),
-      paddingTop: theme.spacing(0.5),
-      paddingBottom: theme.spacing(0.5),
-    },
-  },
   icon: {
     width: '25px',
     height: '25px',
     filter: 'brightness(0) invert(1)',
   },
   table: {
+    backgroundColor: theme.enterprise.colors.backgroundElevated,
     '& .MuiTableCell-sizeSmall': {
-      paddingLeft: 0,
-      paddingRight: 0,
+      padding: theme.spacing(0.55, 0.75),
     },
     '& .MuiTableCell-sizeSmall:first-of-type': {
       paddingRight: theme.spacing(1),
     },
   },
   cell: {
-    borderBottom: 'none',
+    borderBottom: `1px solid ${theme.enterprise.colors.borderSubtle}`,
   },
   actions: {
     justifyContent: 'space-between',
+    padding: theme.spacing(0.5, 0.75),
+    borderTop: `1px solid ${theme.enterprise.colors.borderSubtle}`,
+    '& .MuiIconButton-root': {
+      width: 34,
+      height: 34,
+    },
+  },
+  telemetryAction: {
+    marginTop: theme.spacing(1),
+    width: '100%',
+    justifyContent: 'flex-start',
   },
   root: {
     pointerEvents: 'none',
@@ -129,7 +147,14 @@ const StatusRow = ({ name, content }) => {
   );
 };
 
-const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPadding = 0 }) => {
+const StatusCard = ({
+  deviceId,
+  position,
+  onClose,
+  onTelemetryClick,
+  disableActions,
+  desktopPadding = 0,
+}) => {
   const { classes } = useStyles({ desktopPadding });
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -156,7 +181,6 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
   const [anchorEl, setAnchorEl] = useState(null);
 
   const [removing, setRemoving] = useState(false);
-  const [tab, setTab] = useState('status');
 
   const handleRemove = useCatch(async (removed) => {
     if (removed) {
@@ -215,58 +239,60 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
                   </IconButton>
                 </div>
               )}
-              <Tabs
-                value={tab}
-                onChange={(event, value) => setTab(value)}
-                variant="fullWidth"
-                className={classes.tabs}
-              >
-                <Tab value="status" label={t('stateTitle') || 'Status'} />
-                <Tab value="telemetry" label="Telemetry" />
-              </Tabs>
               <CardContent className={classes.content}>
-                {tab === 'status' && position && (
-                  <Table size="small" className={classes.table}>
-                    <TableBody>
-                      {positionItems
-                        .split(',')
-                        .filter(
-                          (key) =>
-                            position.hasOwnProperty(key) || position.attributes.hasOwnProperty(key),
-                        )
-                        .map((key) => (
-                          <StatusRow
-                            key={key}
-                            name={positionAttributes[key]?.name || key}
-                            content={
-                              <PositionValue
-                                position={position}
-                                property={position.hasOwnProperty(key) ? key : null}
-                                attribute={position.hasOwnProperty(key) ? null : key}
-                              />
-                            }
-                          />
-                        ))}
-                    </TableBody>
-                    <TableFooter>
-                      <TableRow>
-                        <TableCell colSpan={2} className={classes.cell}>
-                          <Typography variant="body2">
-                            <Link component={RouterLink} to={`/position/${position.id}`}>
-                              {t('sharedShowDetails')}
-                            </Link>
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    </TableFooter>
-                  </Table>
+                {position && (
+                  <>
+                    <Table size="small" className={classes.table}>
+                      <TableBody>
+                        {positionItems
+                          .split(',')
+                          .filter(
+                            (key) =>
+                              position.hasOwnProperty(key) ||
+                              position.attributes.hasOwnProperty(key),
+                          )
+                          .map((key) => (
+                            <StatusRow
+                              key={key}
+                              name={positionAttributes[key]?.name || key}
+                              content={
+                                <PositionValue
+                                  position={position}
+                                  property={position.hasOwnProperty(key) ? key : null}
+                                  attribute={position.hasOwnProperty(key) ? null : key}
+                                />
+                              }
+                            />
+                          ))}
+                      </TableBody>
+                      <TableFooter>
+                        <TableRow>
+                          <TableCell colSpan={2} className={classes.cell}>
+                            <Typography variant="body2">
+                              <Link component={RouterLink} to={`/position/${position.id}`}>
+                                {t('sharedShowDetails')}
+                              </Link>
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      </TableFooter>
+                    </Table>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<TimelineIcon />}
+                      className={classes.telemetryAction}
+                      onClick={onTelemetryClick}
+                    >
+                      {t('telemetryTitle')}
+                    </Button>
+                  </>
                 )}
-                {tab === 'status' && !position && (
+                {!position && (
                   <Typography variant="body2" color="textSecondary">
                     {t('positionLast') || 'No position'}
                   </Typography>
                 )}
-                {tab === 'telemetry' && <TelemetryPanel deviceId={deviceId} />}
               </CardContent>
               <CardActions className={classes.actions} disableSpacing>
                 <Tooltip title={t('sharedExtra')}>
@@ -278,9 +304,9 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
                     <PendingIcon />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title={t('reportReplay')}>
+                <Tooltip title={t('reportTrackInspector')}>
                   <IconButton
-                    onClick={() => navigate(`/replay?deviceId=${deviceId}`)}
+                    onClick={() => navigate(trackInspectorPath(deviceId))}
                     disabled={disableActions || !position}
                   >
                     <RouteIcon />

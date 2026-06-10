@@ -16,6 +16,7 @@ import BatteryCharging60Icon from '@mui/icons-material/BatteryCharging60';
 import Battery20Icon from '@mui/icons-material/Battery20';
 import BatteryCharging20Icon from '@mui/icons-material/BatteryCharging20';
 import ErrorIcon from '@mui/icons-material/Error';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { devicesActions } from '../store';
@@ -39,8 +40,8 @@ dayjs.extend(relativeTime);
 
 const useStyles = makeStyles()((theme) => ({
   icon: {
-    width: '25px',
-    height: '25px',
+    width: 22,
+    height: 22,
     filter: 'brightness(0) invert(1)',
   },
   batteryText: {
@@ -61,11 +62,57 @@ const useStyles = makeStyles()((theme) => ({
     color: theme.palette.neutral.main,
   },
   selected: {
-    backgroundColor: theme.palette.action.selected,
+    backgroundColor: `${theme.enterprise.colors.rowSelected} !important`,
+    boxShadow: `inset 3px 0 0 ${theme.enterprise.colors.success}, inset 0 0 18px rgba(34, 197, 94, 0.08)`,
+  },
+  item: {
+    height: theme.enterprise.density.rowHeight - 4,
+    margin: theme.spacing(0.25, 0.75),
+    padding: theme.spacing(0.45, 0.75),
+    border: `1px solid ${theme.enterprise.colors.borderSubtle}`,
+    borderRadius: theme.enterprise.radius.sm,
+    color: theme.enterprise.colors.text,
+    backgroundColor: 'rgba(15, 23, 32, 0.58)',
+    transition: theme.transitions.create(['background-color', 'border-color', 'box-shadow']),
+    '&:hover': {
+      borderColor: theme.enterprise.colors.border,
+      backgroundColor: theme.enterprise.colors.rowHover,
+    },
+    '& .MuiListItemAvatar-root': {
+      minWidth: 36,
+    },
+    '& .MuiAvatar-root': {
+      width: 28,
+      height: 28,
+      borderRadius: theme.enterprise.radius.xs,
+      backgroundColor: 'rgba(47, 129, 247, 0.16)',
+      boxShadow: 'inset 0 0 0 1px rgba(47, 129, 247, 0.22)',
+    },
+    '& .MuiListItemText-root': {
+      marginTop: 0,
+      marginBottom: 0,
+      minWidth: 0,
+    },
+    '& .MuiListItemText-primary': {
+      color: theme.enterprise.colors.text,
+      fontSize: theme.enterprise.typography.bodySize,
+      fontWeight: 600,
+      lineHeight: 1.25,
+    },
+    '& .MuiListItemText-secondary': {
+      color: theme.enterprise.colors.textMuted,
+      fontSize: theme.enterprise.typography.denseSize,
+      lineHeight: 1.25,
+    },
+    '& .MuiIconButton-root': {
+      width: 28,
+      height: 28,
+      padding: theme.spacing(0.25),
+    },
   },
 }));
 
-const DeviceRow = ({ devices, index, style }) => {
+const DeviceRow = ({ devices, index, style, onShowStatus, onShowTelemetry }) => {
   const { classes } = useStyles();
   const dispatch = useDispatch();
   const t = useTranslation();
@@ -117,14 +164,23 @@ const DeviceRow = ({ devices, index, style }) => {
     );
   };
 
+  const openTelemetry = (event) => {
+    event.stopPropagation();
+    dispatch(devicesActions.selectId(item.id));
+    onShowTelemetry?.();
+  };
+
   return (
     <div style={style}>
       <ListItemButton
         key={item.id}
-        onClick={() => dispatch(devicesActions.selectId(item.id))}
+        onClick={() => {
+          dispatch(devicesActions.selectId(item.id));
+          onShowStatus?.();
+        }}
         disabled={!admin && item.disabled}
         selected={selectedDeviceId === item.id}
-        className={selectedDeviceId === item.id ? classes.selected : null}
+        className={`${classes.item} ${selectedDeviceId === item.id ? classes.selected : ''}`}
       >
         <ListItemAvatar>
           <Avatar>
@@ -192,6 +248,11 @@ const DeviceRow = ({ devices, index, style }) => {
             )}
           </>
         )}
+        <Tooltip title={t('telemetryTitle')}>
+          <IconButton size="small" onClick={openTelemetry} disabled={!admin && item.disabled}>
+            <TimelineIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </ListItemButton>
     </div>
   );

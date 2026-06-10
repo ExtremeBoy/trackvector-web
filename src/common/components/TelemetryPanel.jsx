@@ -38,9 +38,13 @@ import { formatTime } from '../util/formatter';
 const useStyles = makeStyles()((theme) => ({
   root: {
     minHeight: theme.spacing(10),
+    color: theme.enterprise.colors.text,
   },
   tableWrap: {
     overflowX: 'auto',
+    border: `1px solid ${theme.enterprise.colors.borderSubtle}`,
+    borderRadius: theme.enterprise.radius.xs,
+    backgroundColor: theme.enterprise.colors.backgroundElevated,
   },
   table: {
     minWidth: 520,
@@ -50,7 +54,7 @@ const useStyles = makeStyles()((theme) => ({
       paddingRight: theme.spacing(0.75),
     },
     '& .MuiTableCell-sizeSmall:first-of-type': {
-      paddingLeft: 0,
+      /*paddingLeft: 0,*/
     },
   },
   empty: {
@@ -71,6 +75,10 @@ const useStyles = makeStyles()((theme) => ({
     alignItems: 'center',
     gap: theme.spacing(1),
     paddingBottom: theme.spacing(0.5),
+    '& .MuiButton-root, & .MuiIconButton-root': {
+      minHeight: 32,
+      height: 32,
+    },
   },
   actions: {
     display: 'flex',
@@ -88,6 +96,7 @@ const useStyles = makeStyles()((theme) => ({
   },
   config: {
     paddingBottom: theme.spacing(1),
+    color: theme.enterprise.colors.text,
   },
   configTable: {
     minWidth: 880,
@@ -111,7 +120,7 @@ const useStyles = makeStyles()((theme) => ({
   },
   calibrationRow: {
     '& .MuiTableCell-sizeSmall': {
-      borderBottomColor: theme.palette.divider,
+      borderBottomColor: theme.enterprise.colors.borderSubtle,
     },
   },
   calibrationPanel: {
@@ -138,9 +147,6 @@ const useStyles = makeStyles()((theme) => ({
     flexWrap: 'wrap',
     gap: theme.spacing(0.5),
   },
-  valueDetail: {
-    display: 'block',
-  },
   statusValue: {
     display: 'flex',
     alignItems: 'center',
@@ -156,7 +162,8 @@ const useStyles = makeStyles()((theme) => ({
     display: 'block',
   },
   selectedRow: {
-    backgroundColor: theme.palette.action.selected,
+    backgroundColor: `${theme.enterprise.colors.rowSelected} !important`,
+    boxShadow: `inset 3px 0 0 ${theme.enterprise.colors.success}`,
     cursor: 'pointer',
   },
   history: {
@@ -171,6 +178,10 @@ const useStyles = makeStyles()((theme) => ({
   },
   chart: {
     height: 220,
+    padding: theme.spacing(1),
+    border: `1px solid ${theme.enterprise.colors.borderSubtle}`,
+    borderRadius: theme.enterprise.radius.xs,
+    backgroundColor: theme.enterprise.colors.surfaceMuted,
   },
   chartMessage: {
     paddingTop: theme.spacing(1),
@@ -226,9 +237,11 @@ const labels = {
   sensor: 'Sensor',
   sensorType: 'Sensor type',
   value: 'Current value',
+  rawValue: 'Raw value',
+  unit: 'Unit',
   status: 'Status',
   valueType: 'Value type',
-  time: 'Time',
+  time: 'Updated',
   visible: 'Visible',
   label: 'Label',
   rawUnit: 'Raw unit',
@@ -271,7 +284,7 @@ const labels = {
 
 const getRangeStart = (rangeHours, to = Date.now()) => to - rangeHours * 60 * 60 * 1000;
 
-const getValueType = (point) => {
+export const getTelemetryValueType = (point) => {
   if (point.valueType) {
     return point.valueType;
   }
@@ -300,22 +313,53 @@ const sortSensorConfigs = (items) =>
 const sortHistoryItems = (items) =>
   Array.from(items).sort((first, second) => first.time - second.time);
 
-const formatNumber = (value) =>
+const inferSensorType = (point) => {
+  const key = point.key.toLowerCase();
+  if (key.includes('fuel')) {
+    return 'FUEL';
+  }
+  if (key.includes('temp')) {
+    return 'TEMPERATURE';
+  }
+  if (key.includes('battery') || key.includes('power') || key.includes('voltage')) {
+    return 'VOLTAGE';
+  }
+  if (key.includes('ignition') || getTelemetryValueType(point) === 'BOOLEAN') {
+    return 'SWITCH';
+  }
+  if (getTelemetryValueType(point) === 'NUMBER') {
+    return 'ANALOG';
+  }
+  return 'TEXT';
+};
+
+const createSensorConfigsFromItems = (items) =>
+  sortSensorConfigs(
+    sortItems(items).map((item, index) => ({
+      key: item.key,
+      label: item.key,
+      sensorType: inferSensorType(item),
+      enabled: true,
+      sortOrder: index,
+    })),
+  );
+
+export const formatTelemetryNumber = (value) =>
   Number(value).toLocaleString(undefined, {
     maximumFractionDigits: 4,
   });
 
-const formatValue = (point) => {
-  switch (getValueType(point)) {
+export const formatTelemetryValue = (point) => {
+  switch (getTelemetryValueType(point)) {
     case 'NUMBER':
-      return point.valueNumber != null ? formatNumber(point.valueNumber) : '';
+      return point.valueNumber != null ? formatTelemetryNumber(point.valueNumber) : '';
     case 'BOOLEAN':
       return point.valueBoolean ? 'On' : 'Off';
     case 'STRING':
       return point.valueString ?? '';
     default:
       if (point.valueNumber != null) {
-        return formatNumber(point.valueNumber);
+        return formatTelemetryNumber(point.valueNumber);
       }
       if (point.valueBoolean != null) {
         return point.valueBoolean ? 'On' : 'Off';
@@ -324,25 +368,8 @@ const formatValue = (point) => {
   }
 };
 
-const formatDisplayValue = (point, config) => {
-  const value = formatValue(point);
-  const unit = config?.displayUnit || config?.unit;
-  if (getValueType(point) === 'NUMBER' && unit) {
-    return `${value} ${unit}`;
-  }
-  return value;
-};
-
-const formatRawValue = (point, config) => {
-  if (getValueType(point) !== 'NUMBER' || point.rawValueNumber == null) {
-    return null;
-  }
-  const rawValue = formatNumber(point.rawValueNumber);
-  return config?.rawUnit ? `${rawValue} ${config.rawUnit}` : rawValue;
-};
-
-const getTelemetryStatus = (point, config) => {
-  if (getValueType(point) !== 'NUMBER' || point.valueNumber == null || !config) {
+export const getTelemetryStatus = (point, config) => {
+  if (getTelemetryValueType(point) !== 'NUMBER' || point.valueNumber == null || !config) {
     return { level: 'normal', label: labels.normalStatus };
   }
   const value = Number(point.valueNumber);
@@ -366,7 +393,7 @@ const getTelemetryStatus = (point, config) => {
   return { level: 'normal', label: labels.normalStatus };
 };
 
-const getStatusColor = (theme, level) => {
+export const getTelemetryStatusColor = (theme, level) => {
   if (level === 'critical') {
     return theme.palette.error.main;
   }
@@ -376,7 +403,7 @@ const getStatusColor = (theme, level) => {
   return theme.palette.text.disabled;
 };
 
-const getStatusDescription = (status, config) => {
+export const getTelemetryStatusDescription = (status, config) => {
   if (status.level === 'critical') {
     return `Critical threshold: ${config.criticalMin ?? '-'} to ${config.criticalMax ?? '-'}`;
   }
@@ -448,7 +475,7 @@ const toSensorPayload = (configs) =>
     sortOrder: config.sortOrder ?? index,
   }));
 
-const TelemetryPanel = ({ deviceId }) => {
+const TelemetryPanel = ({ deviceId, position, compact = false }) => {
   const { classes } = useStyles();
   const theme = useTheme();
 
@@ -479,6 +506,29 @@ const TelemetryPanel = ({ deviceId }) => {
   const selectedKeyRef = useRef();
   const rangeHoursRef = useRef(rangeHours);
 
+  const positionTelemetry = useMemo(() => {
+    if (!position?.attributes) {
+      return [];
+    }
+    return sortItems(
+      Object.entries(position.attributes).map(([key, value]) => {
+        const point = {
+          key,
+          deviceId: position.deviceId,
+          positionId: position.id,
+          fixTime: position.fixTime,
+        };
+        if (typeof value === 'number') {
+          return { ...point, valueNumber: value, valueType: 'NUMBER' };
+        }
+        if (typeof value === 'boolean') {
+          return { ...point, valueBoolean: value, valueType: 'BOOLEAN' };
+        }
+        return { ...point, valueString: value == null ? '' : String(value), valueType: 'STRING' };
+      }),
+    );
+  }, [position]);
+
   const configByKey = useMemo(
     () => new Map(sensorConfigs.map((config) => [config.key, config])),
     [sensorConfigs],
@@ -504,7 +554,7 @@ const TelemetryPanel = ({ deviceId }) => {
   );
 
   const selectedItem = visibleItems.find((item) => item.key === selectedKey);
-  const selectedNumeric = selectedItem && getValueType(selectedItem) === 'NUMBER';
+  const selectedNumeric = selectedItem && getTelemetryValueType(selectedItem) === 'NUMBER';
   const selectedRange = timeRanges.find((range) => range.value === rangeHours);
   const selectedConfig = selectedItem ? configByKey.get(selectedItem.key) : null;
   const selectedLabel = selectedConfig?.label || selectedItem?.key || selectedKey;
@@ -540,13 +590,14 @@ const TelemetryPanel = ({ deviceId }) => {
       setSensorConfigs(configs);
       setSavedSensorConfigs(configs);
     } catch {
-      setSensorConfigs([]);
-      setSavedSensorConfigs([]);
-      setSensorError(true);
+      const fallbackConfigs = createSensorConfigsFromItems(positionTelemetry);
+      setSensorConfigs(fallbackConfigs);
+      setSavedSensorConfigs(fallbackConfigs);
+      setSensorError(!fallbackConfigs.length);
     } finally {
       setSensorLoading(false);
     }
-  }, [deviceId]);
+  }, [deviceId, positionTelemetry]);
 
   useEffect(() => {
     setEditMode(false);
@@ -559,12 +610,22 @@ const TelemetryPanel = ({ deviceId }) => {
     }
   }, [selectedKey, visibleItems]);
 
+  useEffect(() => {
+    if (!sensorLoading && sensorError && !sensorConfigs.length && items.length) {
+      const fallbackConfigs = createSensorConfigsFromItems(items);
+      setSensorConfigs(fallbackConfigs);
+      setSavedSensorConfigs(fallbackConfigs);
+      setSensorError(false);
+    }
+  }, [items, sensorConfigs.length, sensorError, sensorLoading]);
+
   const mergePoints = useCallback(
     (points, message) => {
       setItems((previous) => {
+        setError(false);
         const merged = new Map(previous.map((item) => [item.key, item]));
         points.forEach((point) => {
-          const valueType = getValueType(point);
+          const valueType = getTelemetryValueType(point);
           merged.set(point.key, {
             ...merged.get(point.key),
             ...point,
@@ -721,7 +782,7 @@ const TelemetryPanel = ({ deviceId }) => {
             const merged = new Map();
             if (Array.isArray(data)) {
               data.forEach((item) => {
-                merged.set(item.key, { ...item, valueType: getValueType(item) });
+                merged.set(item.key, { ...item, valueType: getTelemetryValueType(item) });
               });
             }
             previous.forEach((item) => merged.set(item.key, item));
@@ -730,8 +791,8 @@ const TelemetryPanel = ({ deviceId }) => {
         }
       } catch {
         if (active) {
-          setItems([]);
-          setError(true);
+          setItems(positionTelemetry);
+          setError(!positionTelemetry.length);
         }
       } finally {
         if (active) {
@@ -749,7 +810,7 @@ const TelemetryPanel = ({ deviceId }) => {
     return () => {
       active = false;
     };
-  }, [deviceId]);
+  }, [deviceId, positionTelemetry]);
 
   useEffect(() => {
     if (!selectedKey || !selectedNumeric) {
@@ -782,7 +843,9 @@ const TelemetryPanel = ({ deviceId }) => {
         if (active) {
           const history = Array.isArray(data)
             ? data
-                .filter((item) => getValueType(item) === 'NUMBER' && item.valueNumber != null)
+                .filter(
+                  (item) => getTelemetryValueType(item) === 'NUMBER' && item.valueNumber != null,
+                )
                 .map((item) => ({
                   time: Date.parse(item.fixTime || item.createdAt),
                   value: Number(item.valueNumber),
@@ -929,7 +992,7 @@ const TelemetryPanel = ({ deviceId }) => {
                 <IconButton
                   size="small"
                   onClick={() => setEditMode(true)}
-                  disabled={sensorLoading || !sensorConfigs.length}
+                  disabled={sensorLoading || (!sensorConfigs.length && !items.length)}
                 >
                   <SettingsIcon fontSize="small" />
                 </IconButton>
@@ -970,7 +1033,7 @@ const TelemetryPanel = ({ deviceId }) => {
                 {sortSensorConfigs(sensorConfigs).map((config, index, configs) => {
                   const item = itemByKey.get(config.key);
                   const numeric = item
-                    ? getValueType(item) === 'NUMBER'
+                    ? getTelemetryValueType(item) === 'NUMBER'
                     : isLikelyNumericSensor(config.sensorType);
                   const draft = calibrationDrafts[config.key] || {};
                   return (
@@ -1215,11 +1278,11 @@ const TelemetryPanel = ({ deviceId }) => {
           <Table size="small" className={classes.table}>
             <TableHead>
               <TableRow>
-                <TableCell>{labels.sensor}</TableCell>
-                <TableCell>{labels.sensorType}</TableCell>
+                <TableCell>{labels.label}</TableCell>
                 <TableCell>{labels.value}</TableCell>
+                <TableCell>{labels.rawValue}</TableCell>
+                <TableCell>{labels.unit}</TableCell>
                 <TableCell>{labels.status}</TableCell>
-                <TableCell>{labels.valueType}</TableCell>
                 <TableCell>{labels.time}</TableCell>
               </TableRow>
             </TableHead>
@@ -1227,9 +1290,13 @@ const TelemetryPanel = ({ deviceId }) => {
               {visibleItems.map((item) => {
                 const config = configByKey.get(item.key);
                 const label = config?.label || item.key;
-                const rawValue = formatRawValue(item, config);
+                const rawValue =
+                  getTelemetryValueType(item) === 'NUMBER' && item.rawValueNumber != null
+                    ? formatTelemetryNumber(item.rawValueNumber)
+                    : '';
+                const unit = config?.displayUnit || config?.unit || config?.rawUnit || '';
                 const status = getTelemetryStatus(item, config);
-                const statusColor = getStatusColor(theme, status.level);
+                const statusColor = getTelemetryStatusColor(theme, status.level);
                 return (
                   <TableRow
                     hover
@@ -1252,21 +1319,13 @@ const TelemetryPanel = ({ deviceId }) => {
                         </Box>
                       </MuiTooltip>
                     </TableCell>
-                    <TableCell>{item.sensorType}</TableCell>
                     <TableCell>
-                      <Typography variant="body2">{formatDisplayValue(item, config)}</Typography>
-                      {rawValue && (
-                        <Typography
-                          variant="caption"
-                          color="textSecondary"
-                          className={classes.valueDetail}
-                        >
-                          Raw {rawValue}
-                        </Typography>
-                      )}
+                      <Typography variant="body2">{formatTelemetryValue(item)}</Typography>
                     </TableCell>
+                    <TableCell>{rawValue}</TableCell>
+                    <TableCell>{unit}</TableCell>
                     <TableCell>
-                      <MuiTooltip title={getStatusDescription(status, config || {})}>
+                      <MuiTooltip title={getTelemetryStatusDescription(status, config || {})}>
                         <Box className={classes.statusValue}>
                           <Box
                             className={classes.statusDot}
@@ -1282,7 +1341,6 @@ const TelemetryPanel = ({ deviceId }) => {
                         </Box>
                       </MuiTooltip>
                     </TableCell>
-                    <TableCell>{getValueType(item)}</TableCell>
                     <TableCell>{formatTime(item.fixTime || item.createdAt, 'minutes')}</TableCell>
                   </TableRow>
                 );
@@ -1291,115 +1349,123 @@ const TelemetryPanel = ({ deviceId }) => {
           </Table>
         </Box>
       )}
-      <Box className={classes.history}>
-        <Box className={classes.historyHeader}>
-          <Typography variant="body2" color="textSecondary">
-            {selectedLabel || labels.selectSensor}
-          </Typography>
-          <ButtonGroup size="small" variant="outlined" disabled={!selectedKey || !selectedNumeric}>
-            {timeRanges.map((range) => (
-              <Button
-                key={range.value}
-                variant={rangeHours === range.value ? 'contained' : 'outlined'}
-                onClick={() => setRangeHours(range.value)}
-              >
-                {range.label}
-              </Button>
-            ))}
-          </ButtonGroup>
-        </Box>
-        {!selectedKey && (
-          <Typography variant="body2" color="textSecondary" className={classes.chartMessage}>
-            {labels.selectSensor}
-          </Typography>
-        )}
-        {selectedKey && !selectedNumeric && (
-          <Typography variant="body2" color="textSecondary" className={classes.chartMessage}>
-            {labels.nonNumeric}
-          </Typography>
-        )}
-        {selectedKey && selectedNumeric && historyLoading && (
-          <Box className={classes.loading}>
-            <CircularProgress size={18} />
+      {!compact && (
+        <Box className={classes.history}>
+          <Box className={classes.historyHeader}>
             <Typography variant="body2" color="textSecondary">
-              {labels.loadingHistory}
+              {selectedLabel || labels.selectSensor}
             </Typography>
+            <ButtonGroup
+              size="small"
+              variant="outlined"
+              disabled={!selectedKey || !selectedNumeric}
+            >
+              {timeRanges.map((range) => (
+                <Button
+                  key={range.value}
+                  variant={rangeHours === range.value ? 'contained' : 'outlined'}
+                  onClick={() => setRangeHours(range.value)}
+                >
+                  {range.label}
+                </Button>
+              ))}
+            </ButtonGroup>
           </Box>
-        )}
-        {selectedKey && selectedNumeric && historyError && (
-          <Alert severity="error">{labels.historyError}</Alert>
-        )}
-        {selectedKey && selectedNumeric && !historyLoading && !historyError && (
-          <Typography variant="caption" color="textSecondary" className={classes.subtitle}>
-            {selectedRange.title}
-          </Typography>
-        )}
-        {selectedKey &&
-          selectedNumeric &&
-          !historyLoading &&
-          !historyError &&
-          !historyItems.length && (
+          {!selectedKey && (
             <Typography variant="body2" color="textSecondary" className={classes.chartMessage}>
-              {labels.historyEmpty}
+              {labels.selectSensor}
             </Typography>
           )}
-        {selectedKey &&
-          selectedNumeric &&
-          !historyLoading &&
-          !historyError &&
-          historyItems.length > 0 && (
-            <Box className={classes.chart}>
-              <ResponsiveContainer>
-                <LineChart
-                  data={historyItems}
-                  margin={{
-                    top: 10,
-                    right: 12,
-                    left: -18,
-                    bottom: 0,
-                  }}
-                >
-                  <XAxis
-                    stroke={theme.palette.text.primary}
-                    dataKey="time"
-                    type="number"
-                    tickFormatter={(value) => formatTime(value, 'time')}
-                    domain={[chartWindow.from, chartWindow.to]}
-                    scale="time"
-                  />
-                  <YAxis
-                    stroke={theme.palette.text.primary}
-                    type="number"
-                    tickFormatter={(value) => parseFloat(value.toFixed(2))}
-                    domain={['auto', 'auto']}
-                  />
-                  <CartesianGrid stroke={theme.palette.divider} strokeDasharray="3 3" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: theme.palette.background.default,
-                      color: theme.palette.text.primary,
-                    }}
-                    formatter={(value) => [
-                      selectedConfig?.displayUnit || selectedConfig?.unit
-                        ? `${formatNumber(value)} ${selectedConfig.displayUnit || selectedConfig.unit}`
-                        : formatNumber(value),
-                      selectedLabel,
-                    ]}
-                    labelFormatter={(value) => formatTime(value, 'seconds')}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    stroke={theme.palette.primary.main}
-                    dot={historyItems.length <= 20}
-                    activeDot={{ r: 5 }}
-                    connectNulls
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+          {selectedKey && !selectedNumeric && (
+            <Typography variant="body2" color="textSecondary" className={classes.chartMessage}>
+              {labels.nonNumeric}
+            </Typography>
+          )}
+          {selectedKey && selectedNumeric && historyLoading && (
+            <Box className={classes.loading}>
+              <CircularProgress size={18} />
+              <Typography variant="body2" color="textSecondary">
+                {labels.loadingHistory}
+              </Typography>
             </Box>
           )}
-      </Box>
+          {selectedKey && selectedNumeric && historyError && (
+            <Alert severity="error">{labels.historyError}</Alert>
+          )}
+          {selectedKey && selectedNumeric && !historyLoading && !historyError && (
+            <Typography variant="caption" color="textSecondary" className={classes.subtitle}>
+              {selectedRange.title}
+            </Typography>
+          )}
+          {selectedKey &&
+            selectedNumeric &&
+            !historyLoading &&
+            !historyError &&
+            !historyItems.length && (
+              <Typography variant="body2" color="textSecondary" className={classes.chartMessage}>
+                {labels.historyEmpty}
+              </Typography>
+            )}
+          {selectedKey &&
+            selectedNumeric &&
+            !historyLoading &&
+            !historyError &&
+            historyItems.length > 0 && (
+              <Box className={classes.chart}>
+                <ResponsiveContainer>
+                  <LineChart
+                    data={historyItems}
+                    margin={{
+                      top: 10,
+                      right: 12,
+                      left: -18,
+                      bottom: 0,
+                    }}
+                  >
+                    <XAxis
+                      stroke={theme.palette.text.primary}
+                      dataKey="time"
+                      type="number"
+                      tickFormatter={(value) => formatTime(value, 'time')}
+                      domain={[chartWindow.from, chartWindow.to]}
+                      scale="time"
+                    />
+                    <YAxis
+                      stroke={theme.palette.text.primary}
+                      type="number"
+                      tickFormatter={(value) => parseFloat(value.toFixed(2))}
+                      domain={['auto', 'auto']}
+                    />
+                    <CartesianGrid stroke={theme.palette.divider} strokeDasharray="3 3" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: theme.palette.background.default,
+                        color: theme.palette.text.primary,
+                      }}
+                      formatter={(value) => [
+                        selectedConfig?.displayUnit || selectedConfig?.unit
+                          ? `${formatTelemetryNumber(value)} ${
+                              selectedConfig.displayUnit || selectedConfig.unit
+                            }`
+                          : formatTelemetryNumber(value),
+                        selectedLabel,
+                      ]}
+                      labelFormatter={(value) => formatTime(value, 'seconds')}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke={theme.palette.primary.main}
+                      dot={historyItems.length <= 20}
+                      activeDot={{ r: 5 }}
+                      connectNulls
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Box>
+            )}
+        </Box>
+      )}
     </Box>
   );
 };

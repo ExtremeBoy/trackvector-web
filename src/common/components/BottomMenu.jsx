@@ -10,6 +10,7 @@ import {
   Typography,
   Badge,
 } from '@mui/material';
+import { makeStyles } from 'tss-react/mui';
 
 import DescriptionIcon from '@mui/icons-material/Description';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -22,7 +23,18 @@ import { useTranslation } from './LocalizationProvider';
 import { useRestriction } from '../util/permissions';
 import { nativePostMessage } from './NativeInterface';
 
+const useStyles = makeStyles()((theme) => ({
+  root: {
+    border: `1px solid ${theme.enterprise.colors.border}`,
+    borderRadius: 6,
+    overflow: 'hidden',
+    backgroundColor: theme.enterprise.colors.surface,
+    boxShadow: theme.enterprise.shadows.overlay,
+  },
+}));
+
 const BottomMenu = () => {
+  const { classes } = useStyles();
   const navigate = useNavigate();
   const location = useLocation();
   const dispatch = useDispatch();
@@ -126,7 +138,7 @@ const BottomMenu = () => {
   };
 
   return (
-    <Paper square elevation={3}>
+    <Paper elevation={3} className={classes.root}>
       <BottomNavigation value={currentSelection()} onChange={handleSelection} showLabels>
         <BottomNavigationAction
           label={t('mapTitle')}

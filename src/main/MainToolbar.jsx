@@ -32,14 +32,27 @@ import DeviceRow from './DeviceRow';
 const useStyles = makeStyles()((theme) => ({
   toolbar: {
     display: 'flex',
+    minHeight: 52,
     gap: theme.spacing(1),
+    padding: theme.spacing(0.75, 1),
+    backgroundColor: theme.enterprise.colors.surface,
+    '& .MuiOutlinedInput-root': {
+      height: 36,
+      backgroundColor: theme.enterprise.colors.surfaceMuted,
+    },
+    '& .MuiIconButton-root': {
+      width: 36,
+      height: 36,
+    },
   },
   filterPanel: {
     display: 'flex',
     flexDirection: 'column',
-    padding: theme.spacing(2),
-    gap: theme.spacing(2),
+    padding: theme.spacing(1.5),
+    gap: theme.spacing(1.25),
     width: theme.dimensions.drawerWidthTablet,
+    border: `1px solid ${theme.enterprise.colors.border}`,
+    backgroundColor: theme.enterprise.colors.surfaceAlt,
   },
 }));
 

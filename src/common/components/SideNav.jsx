@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { makeStyles } from 'tss-react/mui';
 import {
   List,
   ListItemText,
@@ -10,10 +11,11 @@ import {
 import { Link, useLocation } from 'react-router-dom';
 
 const SideNav = ({ routes }) => {
+  const { classes } = useStyles();
   const location = useLocation();
 
   return (
-    <List disablePadding style={{ paddingTop: '16px' }}>
+    <List disablePadding className={classes.root}>
       {routes.map((route) =>
         route.subheader ? (
           <Fragment key={route.subheader}>
@@ -36,5 +38,22 @@ const SideNav = ({ routes }) => {
     </List>
   );
 };
+
+const useStyles = makeStyles()((theme) => ({
+  root: {
+    paddingTop: theme.spacing(1),
+    '& .MuiListSubheader-root': {
+      color: theme.enterprise.colors.textSubtle,
+      backgroundColor: 'transparent',
+      fontSize: theme.enterprise.typography.labelSize,
+      lineHeight: '32px',
+      textTransform: 'uppercase',
+    },
+    '& .MuiListItemText-primary': {
+      fontSize: theme.enterprise.typography.bodySize,
+      fontWeight: 500,
+    },
+  },
+}));
 
 export default SideNav;

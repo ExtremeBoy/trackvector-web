@@ -3,6 +3,7 @@ import { createTheme } from '@mui/material/styles';
 import palette from './palette';
 import dimensions from './dimensions';
 import components from './components';
+import enterprise from './designTokens';
 
 export default (server, darkMode, direction) =>
   useMemo(
@@ -14,6 +15,7 @@ export default (server, darkMode, direction) =>
         palette: palette(server, darkMode),
         direction,
         dimensions,
+        enterprise,
         components,
       }),
     [server, darkMode, direction],

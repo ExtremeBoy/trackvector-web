@@ -1,6 +1,7 @@
 import { Divider, List } from '@mui/material';
 import StarIcon from '@mui/icons-material/Star';
 import TimelineIcon from '@mui/icons-material/Timeline';
+import SensorsIcon from '@mui/icons-material/Sensors';
 import ManageSearchIcon from '@mui/icons-material/ManageSearch';
 import PauseCircleFilledIcon from '@mui/icons-material/PauseCircleFilled';
 import PlayCircleFilledIcon from '@mui/icons-material/PlayCircleFilled';
@@ -103,6 +104,12 @@ const ReportsMenu = () => {
           link={buildLink('/reports/track-inspector')}
           icon={<ManageSearchIcon />}
           selected={location.pathname === '/reports/track-inspector'}
+        />
+        <MenuItem
+          title={t('reportTelemetry')}
+          link={buildLink('/reports/telemetry')}
+          icon={<SensorsIcon />}
+          selected={location.pathname === '/reports/telemetry'}
         />
       </List>
       <Divider />

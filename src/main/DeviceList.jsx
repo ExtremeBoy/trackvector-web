@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTheme } from '@mui/material';
 import { useDispatch } from 'react-redux';
 import { makeStyles } from 'tss-react/mui';
 import { List } from 'react-window';
@@ -11,6 +12,7 @@ const useStyles = makeStyles()((theme) => ({
   list: {
     height: '100%',
     direction: theme.direction,
+    backgroundColor: theme.enterprise.colors.backgroundElevated,
   },
   listInner: {
     position: 'relative',
@@ -18,8 +20,9 @@ const useStyles = makeStyles()((theme) => ({
   },
 }));
 
-const DeviceList = ({ devices }) => {
+const DeviceList = ({ devices, onShowStatus, onShowTelemetry }) => {
   const { classes } = useStyles();
+  const theme = useTheme();
   const dispatch = useDispatch();
 
   const [, setTime] = useState(Date.now());
@@ -41,8 +44,8 @@ const DeviceList = ({ devices }) => {
       className={classes.list}
       rowComponent={DeviceRow}
       rowCount={devices.length}
-      rowHeight={72}
-      rowProps={{ devices }}
+      rowHeight={theme.enterprise.density.rowHeight}
+      rowProps={{ devices, onShowStatus, onShowTelemetry }}
       overscanCount={5}
     />
   );

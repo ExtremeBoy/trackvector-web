@@ -22,6 +22,8 @@ const useStyles = makeStyles()((theme, { miniVariant }) => ({
   root: {
     height: '100%',
     display: 'flex',
+    color: theme.enterprise.colors.text,
+    backgroundColor: theme.enterprise.colors.background,
     [theme.breakpoints.down('md')]: {
       flexDirection: 'column',
     },
@@ -29,6 +31,8 @@ const useStyles = makeStyles()((theme, { miniVariant }) => ({
   desktopDrawer: {
     width: miniVariant ? theme.spacing(7) : theme.dimensions.drawerWidthDesktop,
     overflowX: 'hidden',
+    borderRight: `1px solid ${theme.enterprise.colors.border}`,
+    backgroundColor: theme.enterprise.colors.surfaceAlt,
     transition: theme.transitions.create('width', {
       easing: theme.transitions.easing.sharp,
       duration: theme.transitions.duration.enteringScreen,
@@ -47,12 +51,15 @@ const useStyles = makeStyles()((theme, { miniVariant }) => ({
   },
   mobileDrawer: {
     width: theme.dimensions.drawerWidthTablet,
+    backgroundColor: theme.enterprise.colors.surfaceAlt,
     '@media print': {
       display: 'none',
     },
   },
   mobileToolbar: {
     zIndex: 1,
+    borderBottom: `1px solid ${theme.enterprise.colors.border}`,
+    backgroundColor: theme.enterprise.colors.surfaceAlt,
     '@media print': {
       display: 'none',
     },
@@ -63,6 +70,7 @@ const useStyles = makeStyles()((theme, { miniVariant }) => ({
     display: 'flex',
     flexDirection: 'column',
     overflowY: 'auto',
+    backgroundColor: theme.enterprise.colors.background,
   },
 }));
 

@@ -51,6 +51,7 @@ import MapCamera from '../map/MapCamera';
 import MapScale from '../map/MapScale';
 import ReportFilter from './components/ReportFilter';
 import ReportsMenu from './components/ReportsMenu';
+import chartTheme from './common/chartTheme';
 import useReportStyles from './common/useReportStyles';
 
 const normalizeTrackPacket = (position, index) => ({
@@ -586,9 +587,9 @@ const useStyles = makeStyles()((theme) => ({
     minHeight: 180,
     display: 'flex',
     flexDirection: 'column',
-    border: '1px solid rgba(148, 163, 184, 0.14)',
+    border: chartTheme.panelBorder,
     borderRadius: 4,
-    backgroundColor: 'rgba(2, 6, 23, 0.28)',
+    backgroundColor: chartTheme.panelBackground,
   },
   chartTitle: {
     padding: theme.spacing(0.5, 1),
@@ -1596,29 +1597,35 @@ const TrackInspectorPage = () => {
       <div className={classes.chartBody}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} onClick={selectChartPacket}>
-            <CartesianGrid stroke="rgba(148, 163, 184, 0.16)" strokeDasharray="3 3" />
+            <CartesianGrid stroke={chartTheme.gridStroke} strokeDasharray={chartTheme.gridDash} />
             <XAxis
               dataKey="index"
-              tick={{ fontSize: 11, fill: '#94a3b8' }}
-              stroke="rgba(148, 163, 184, 0.3)"
+              tick={{ fontSize: 11, fill: chartTheme.axisText }}
+              axisLine={{ stroke: chartTheme.axisLine }}
+              tickLine={{ stroke: chartTheme.tickLine }}
               minTickGap={32}
             />
             <YAxis
-              tick={{ fontSize: 11, fill: '#94a3b8' }}
-              stroke="rgba(148, 163, 184, 0.3)"
+              tick={{ fontSize: 11, fill: chartTheme.axisText }}
+              axisLine={{ stroke: chartTheme.axisLine }}
+              tickLine={{ stroke: chartTheme.tickLine }}
               width={42}
               tickCount={4}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: '#0f1720',
-                border: '1px solid rgba(148, 163, 184, 0.24)',
-                color: '#e2e8f0',
+                backgroundColor: chartTheme.tooltipBackground,
+                border: `1px solid ${chartTheme.tooltipBorder}`,
+                color: chartTheme.tooltipText,
               }}
               labelFormatter={(value) => chartData[value]?.fixTime || value}
             />
             {selectedPacket && (
-              <ReferenceLine x={selectedPacket.index} stroke="#22c55e" strokeDasharray="3 3" />
+              <ReferenceLine
+                x={selectedPacket.index}
+                stroke={chartTheme.cursorStroke}
+                strokeDasharray={chartTheme.cursorDash}
+              />
             )}
             {children}
           </LineChart>

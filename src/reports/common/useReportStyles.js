@@ -5,6 +5,8 @@ export default makeStyles()((theme) => ({
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
+    color: theme.enterprise.colors.text,
+    backgroundColor: theme.enterprise.colors.background,
   },
   containerMap: {
     flexBasis: '40%',
@@ -12,13 +14,23 @@ export default makeStyles()((theme) => ({
   },
   containerMain: {
     overflow: 'auto',
+    padding: theme.spacing(1.25),
+    backgroundColor: theme.enterprise.colors.background,
+    '& > .MuiTable-root, & .MuiTable-root': {
+      minWidth: 720,
+    },
   },
   header: {
     position: 'sticky',
+    top: 0,
+    zIndex: 3,
     left: 0,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'stretch',
+    borderBottom: `1px solid ${theme.enterprise.colors.border}`,
+    backgroundColor: theme.enterprise.colors.surfaceAlt,
+    boxShadow: theme.enterprise.shadows.overlay,
   },
   columnAction: {
     width: '1%',
@@ -33,8 +45,13 @@ export default makeStyles()((theme) => ({
   filter: {
     display: 'inline-flex',
     flexWrap: 'wrap',
-    gap: theme.spacing(2),
-    padding: theme.spacing(3, 2, 2),
+    gap: theme.spacing(1),
+    padding: theme.spacing(1.25),
+    borderBottom: `1px solid ${theme.enterprise.colors.borderSubtle}`,
+    backgroundColor: theme.enterprise.colors.surfaceAlt,
+    '& .MuiInputBase-root, & .MuiButton-root': {
+      minHeight: theme.enterprise.density.controlHeight,
+    },
     '@media print': {
       display: 'none !important',
     },
@@ -47,6 +64,7 @@ export default makeStyles()((theme) => ({
     display: 'flex',
     gap: theme.spacing(1),
     flex: `1 1 ${theme.dimensions.filterFormWidth}`,
+    alignItems: 'center',
   },
   filterButton: {
     flexGrow: 1,

@@ -7,6 +7,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import DeviceList from './DeviceList';
 import BottomMenu from '../common/components/BottomMenu';
 import StatusCard from '../common/components/StatusCard';
+import DeviceTelemetryPopup from '../common/components/DeviceTelemetryPopup';
 import { devicesActions } from '../store';
 import usePersistedState from '../common/util/usePersistedState';
 import EventsDrawer from './EventsDrawer';
@@ -18,6 +19,8 @@ import { useAttributePreference } from '../common/util/preferences';
 const useStyles = makeStyles()((theme) => ({
   root: {
     height: '100%',
+    color: theme.enterprise.colors.text,
+    backgroundColor: theme.enterprise.colors.background,
   },
   sidebar: {
     pointerEvents: 'none',
@@ -40,6 +43,12 @@ const useStyles = makeStyles()((theme) => ({
   header: {
     pointerEvents: 'auto',
     zIndex: 6,
+    border: `1px solid ${theme.enterprise.colors.border}`,
+    borderBottom: 0,
+    borderRadius: `${theme.enterprise.radius.sm}px ${theme.enterprise.radius.sm}px 0 0`,
+    overflow: 'hidden',
+    backgroundColor: theme.enterprise.colors.surface,
+    boxShadow: theme.enterprise.shadows.overlay,
   },
   footer: {
     pointerEvents: 'auto',
@@ -60,6 +69,11 @@ const useStyles = makeStyles()((theme) => ({
     zIndex: 4,
     display: 'flex',
     minHeight: 0,
+    border: `1px solid ${theme.enterprise.colors.border}`,
+    borderTop: 0,
+    borderRadius: `0 0 ${theme.enterprise.radius.sm}px ${theme.enterprise.radius.sm}px`,
+    overflow: 'hidden',
+    backgroundColor: theme.enterprise.colors.backgroundElevated,
   },
 }));
 
@@ -91,8 +105,15 @@ const MainPage = () => {
 
   const [devicesOpen, setDevicesOpen] = useState(desktop);
   const [eventsOpen, setEventsOpen] = useState(false);
+  const [selectedDevicePopupMode, setSelectedDevicePopupMode] = useState('status');
 
   const onEventsClick = useCallback(() => setEventsOpen(true), [setEventsOpen]);
+  const showStatusPopup = useCallback(() => setSelectedDevicePopupMode('status'), []);
+  const showTelemetryPopup = useCallback(() => setSelectedDevicePopupMode('telemetry'), []);
+  const closeDevicePopup = useCallback(() => {
+    setSelectedDevicePopupMode('status');
+    dispatch(devicesActions.selectId(null));
+  }, [dispatch]);
 
   useEffect(() => {
     if (!desktop && mapOnSelect && selectedDeviceId) {
@@ -150,7 +171,11 @@ const MainPage = () => {
             className={classes.contentList}
             style={devicesOpen ? {} : { visibility: 'hidden' }}
           >
-            <DeviceList devices={filteredDevices} />
+            <DeviceList
+              devices={filteredDevices}
+              onShowStatus={showStatusPopup}
+              onShowTelemetry={showTelemetryPopup}
+            />
           </Paper>
         </div>
         {desktop && (
@@ -160,11 +185,21 @@ const MainPage = () => {
         )}
       </div>
       <EventsDrawer open={eventsOpen} onClose={() => setEventsOpen(false)} />
-      {selectedDeviceId && (
+      {selectedDeviceId && selectedDevicePopupMode === 'status' && (
         <StatusCard
           deviceId={selectedDeviceId}
           position={selectedPosition}
-          onClose={() => dispatch(devicesActions.selectId(null))}
+          onClose={closeDevicePopup}
+          onTelemetryClick={showTelemetryPopup}
+          desktopPadding={theme.dimensions.drawerWidthDesktop}
+        />
+      )}
+      {selectedDeviceId && selectedDevicePopupMode === 'telemetry' && (
+        <DeviceTelemetryPopup
+          deviceId={selectedDeviceId}
+          position={selectedPosition}
+          onBack={showStatusPopup}
+          onClose={closeDevicePopup}
           desktopPadding={theme.dimensions.drawerWidthDesktop}
         />
       )}
